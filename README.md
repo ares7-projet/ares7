@@ -31,7 +31,8 @@ To take one on, or to report a mistake, open an **issue** (tab *Issues*) with yo
 ## See the project
 
 - **Website (French):** https://ares7-projet.netlify.app
-  - `index.html`: ARÈS-7 in one minute, with an 11-minute documentary
+  - `en.html`: ARÈS-7 in one minute, in English
+  - `index.html`: the same in French, with an 11-minute documentary
   - `dossier.html`: the full dossier (numbers, calculations, physics, habitat)
   - `lire.html`: the same content as plain text, easy to machine-translate
 - **3D views:** the `viewers/` folder (open in any browser)
