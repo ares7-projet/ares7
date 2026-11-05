@@ -30,7 +30,7 @@ To take one on, or to report a mistake, open an **issue** (tab *Issues*) with yo
 
 ## See the project
 
-- **Website (French):** https://ares7-projet.netlify.app
+- **Website:** https://ares7-projet.netlify.app/en.html (English homepage; the full dossier is in French)
   - `en.html`: ARÈS-7 in one minute, in English
   - `index.html`: the same in French, with an 11-minute documentary
   - `dossier.html`: the full dossier (numbers, calculations, physics, habitat)
