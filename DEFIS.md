@@ -1,5 +1,7 @@
 # Défis ouverts
 
+*[English version](CHALLENGES.md)*
+
 Chaque défi renvoie à une partie du dossier (https://ares7-projet.netlify.app/dossier.html).
 Un défi est relevé quand on montre, calcul ou source à l'appui, que le point tient… ou qu'il ne tient pas. Les deux réponses font avancer le projet.
 

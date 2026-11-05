@@ -1,41 +1,45 @@
 # ARÈS-7
 
-**Et si la structure d'un vaisseau pouvait faire plus que le porter ?**
+*[Version française](README.fr.md)*
 
-Une sphère de 12 mètres. 120 tubes. Deux familles de 60.
+<p align="center"><img src="assets/ares7-sphere.png" alt="ARÈS-7: a 12 m geodesic sphere, matte black panels, 120 glowing edges" width="320"></p>
 
-ARÈS-7 est un concept de vaisseau spatial bâti sur une géodésique de fréquence 2 : ses 120 arêtes se partagent en deux familles de 60, l'une pour la structure, l'autre conçue pour guider un plasma. Ce n'est **pas** un vaisseau qui marche. C'est un dossier d'invention, ouvert : chaque chiffre y est classé selon ce qu'on en sait vraiment.
+**What if a ship's structure could do more than hold it together?**
 
-| Pastille | Sens |
+A 12-metre sphere. 120 tubes. Two families of 60.
+
+## In 30 seconds
+
+- **What it is:** a concept spacecraft built on a frequency-2 geodesic sphere. Its 120 edges split *by geometry alone* into two families of 60: 60 short radial edges (3.28 m), designed to carry a plasma, and 60 longer inner edges (3.71 m) that carry the load.
+- **What is new:** that 60/60 split is not a design choice, it falls out of the icosahedral symmetry. Using it so that the structure would also be a plasma circuit is, as far as we know, an original combination.
+- **What blocks it:** power density. The long-term goal is total freedom of movement, which would take 50 to 150 GW on board in about 150 t: **5,000 to 30,000 times** the power density of the most compact fusion drive studied today (Direct Fusion Drive). Physics does not forbid it, but nothing here can be built today, and the dossier says so plainly.
+
+This is **not** a working ship. It is an open invention notebook: every number is labelled with how much we actually know.
+
+| Badge | Meaning |
 |---|---|
-| 🟢 | acquis, calculé |
-| 🟡 | point de vigilance |
-| 🔵 | non prouvé, mais réel |
-| ⛔ | mur, résultat négatif |
+| 🟢 | established, calculated |
+| 🟡 | point of caution |
+| 🔵 | unproven, but real physics |
+| ⛔ | wall, negative result |
 
-## Voir le projet
+## Find the flaw
 
-- **Le site** : https://ares7-projet.netlify.app
-  - `index.html` : ARÈS-7 en 1 minute, avec le documentaire
-  - `dossier.html` : le dossier complet (nombres, calculs, physique, habitat)
-  - `lire.html` : la même chose en texte simple, pour les lecteurs pressés et les IA
-- **Les vues 3D** : dossier `viewers/` (s'ouvrent dans un navigateur)
-- **Les planches habitat** : `assets/habitat/`
+Criticism is the point. The open challenges are in [CHALLENGES.md](CHALLENGES.md).
+To take one on, or to report a mistake, open an **issue** (tab *Issues*) with your calculation or source. English or French, both are welcome.
 
-Le documentaire (vidéo de 11 min) n'est pas dans ce dépôt, trop lourd : il se regarde sur le site.
+## See the project
 
-## Le verrou
+- **Website (French):** https://ares7-projet.netlify.app
+  - `index.html`: ARÈS-7 in one minute, with an 11-minute documentary
+  - `dossier.html`: the full dossier (numbers, calculations, physics, habitat)
+  - `lire.html`: the same content as plain text, easy to machine-translate
+- **3D views:** the `viewers/` folder (open in any browser)
+- **Habitat drawings:** `assets/habitat/`
 
-Le concept vise une liberté totale de mouvement. Ce qui bloque aujourd'hui, c'est la **densité de puissance** : il manque un facteur de l'ordre de 5 000 à 30 000. Le dossier le dit, et ne prétend pas le contraire.
+## Prior art and licence
 
-## Trouvez la faille
-
-Les critiques sont le but de ce dépôt. Les défis ouverts sont dans [DEFIS.md](DEFIS.md).
-Pour en relever un, ou signaler une erreur : ouvrez une **issue** (onglet *Issues*), avec le calcul ou la source.
-
-## Antériorité et licence
-
-- Antériorité : dépôt e-Soleau à l'INPI le 06/07/2026.
-- Licence : [CC BY-NC-SA 4.0](LICENSE). Vous pouvez partager et améliorer en citant l'auteur, sans usage commercial sans son accord, et en partageant à l'identique.
+- Priority: e-Soleau deposit with INPI (France), 6 July 2026.
+- Licence: [CC BY-NC-SA 4.0](LICENSE). Share and improve it with credit to the author, no commercial use without permission, share alike.
 
 © J.T.
