@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ARÈS-7 — configurations magnétiques inter-modules</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{height:100%;background:#030306;color:#d8d8d2;font-family:system-ui,sans-serif;overflow:hidden}
+  #wrap{display:flex;flex-direction:column;height:100vh}
+  #bar{display:flex;align-items:center;gap:6px;padding:10px 14px;border-bottom:1px solid #1d1d22;flex-wrap:wrap}
+  #bar h1{font-size:13px;font-weight:500;letter-spacing:.4px;width:100%}
+  #bar h1 span{color:#7a7a82;font-weight:400;font-size:11px}
+  button{background:#141418;color:#cfcfca;border:1px solid #2a2a31;padding:6px 10px;border-radius:7px;font-size:11.5px;cursor:pointer}
+  button.on{background:#2a2a33;border-color:#4a4a55;color:#fff}
+  #stage{position:relative;flex:1;min-height:0}
+  canvas{display:block}
+  .ov{position:absolute;pointer-events:none}
+  #info{left:14px;top:14px;background:rgba(6,6,10,.9);border:1px solid #22222a;border-radius:9px;padding:12px 14px;max-width:340px;font-size:11.5px;line-height:1.55}
+  #info .big{font-size:16px;font-weight:600;color:#bfe0ff}
+  #info .t{color:#9a9aa2} #info .ok{color:#9be6a0} #info .warn{color:#ffae6a} #info .no{color:#ff6666}
+  #info .row{display:flex;gap:6px;margin:3px 0;align-items:center}
+  #info .tag{padding:2px 6px;border-radius:4px;font-size:10px;font-weight:600}
+  .tg{background:#1a3a1e;color:#6ee68a} .tw{background:#3a2a10;color:#ffae6a} .tn{background:#3a1414;color:#ff6666}
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div id="bar">
+    <h1>ARÈS-7 <span>— étude des configurations magnétiques inter-modules</span></h1>
+    <button data-m="pair" class="on">① Paire N↔S</button>
+    <button data-m="chain">② Chaîne</button>
+    <button data-m="ring">③ Anneau fermé</button>
+    <button data-m="cring">④ Anneau ouvert</button>
+    <button data-m="halbach">⑤ Halbach</button>
+    <button data-m="parallel">⑥ Parallèle</button>
+    <button data-m="torus">⑦ Toroïdal</button>
+  </div>
+  <div id="stage">
+    <div id="info" class="ov"></div>
+  </div>
+</div>
+<script src="lib/three.min.js"></script>
+<script>
+const stage=document.getElementById('stage');
+const scene=new THREE.Scene();
+const camera=new THREE.PerspectiveCamera(50,1,0.1,200);
+const renderer=new THREE.WebGLRenderer({antialias:true});
+renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
+stage.appendChild(renderer.domElement);
+scene.add(new THREE.AmbientLight(0x333338,1));
+const kl=new THREE.DirectionalLight(0xffffff,0.6);kl.position.set(4,6,5);scene.add(kl);
+const root=new THREE.Group();root.rotation.x=0.3;scene.add(root);
+
+const t=(1+Math.sqrt(5))/2;
+const norm=v=>{const l=Math.hypot(v[0],v[1],v[2]);return[v[0]/l,v[1]/l,v[2]/l];};
+function buildF2(){
+  const ico=[[-1,t,0],[1,t,0],[-1,-t,0],[1,-t,0],[0,-1,t],[0,1,t],[0,-1,-t],[0,1,-t],[t,0,-1],[t,0,1],[-t,0,-1],[-t,0,1]].map(norm);
+  const F=[[0,11,5],[0,5,1],[0,1,7],[0,7,10],[0,10,11],[1,5,9],[5,11,4],[11,10,2],[10,7,6],[7,1,8],[3,9,4],[3,4,2],[3,2,6],[3,6,8],[3,8,9],[4,9,5],[2,4,11],[6,2,10],[8,6,7],[9,8,1]];
+  const verts=ico.slice();const cache={};
+  const mid=(a,b)=>{const k=a<b?a+'_'+b:b+'_'+a;if(cache[k]!=null)return cache[k];const va=verts[a],vb=verts[b];const m=norm([(va[0]+vb[0])/2,(va[1]+vb[1])/2,(va[2]+vb[2])/2]);const i=verts.length;verts.push(m);cache[k]=i;return i;};
+  const eset={};const ae=(a,b)=>{const k=a<b?a+'_'+b:b+'_'+a;eset[k]=[a,b];};const faces=[];
+  for(const[a,b,c]of F){const ab=mid(a,b),bc=mid(b,c),ca=mid(c,a);faces.push([a,ab,ca],[b,bc,ab],[c,ca,bc],[ab,bc,ca]);ae(a,ab);ae(ab,b);ae(b,bc);ae(bc,c);ae(c,ca);ae(ca,a);ae(ab,bc);ae(bc,ca);ae(ca,ab);}
+  return{verts,edges:Object.values(eset),faces};
+}
+const G=buildF2();
+// ---- orientation FACE-POLE (audit croisé) : +Y = centroide de face (axe ordre 3), pas milieu d arete ----
+{ const f=G.faces[3];
+  const c=new THREE.Vector3((G.verts[f[0]][0]+G.verts[f[1]][0]+G.verts[f[2]][0])/3,(G.verts[f[0]][1]+G.verts[f[1]][1]+G.verts[f[2]][1])/3,(G.verts[f[0]][2]+G.verts[f[1]][2]+G.verts[f[2]][2])/3).normalize();
+  const q=new THREE.Quaternion().setFromUnitVectors(c,new THREE.Vector3(0,1,0));
+  G.verts=G.verts.map(v=>{const p=new THREE.Vector3(v[0],v[1],v[2]).applyQuaternion(q);return [p.x,p.y,p.z];}); }
+const R=0.5;
+const baseV=G.verts.map(v=>new THREE.Vector3(v[0]*R,v[1]*R,v[2]*R));
+const up=new THREE.Vector3(0,1,0);
+
+function addModule(pos,dir,grp){
+  const q=new THREE.Quaternion().setFromUnitVectors(up,dir.clone().normalize());
+  const M=new THREE.Matrix4().compose(pos,q,new THREE.Vector3(1,1,1));
+  const tmp=new THREE.Vector3();
+  // arêtes
+  const ep=[];for(const[a,b]of G.edges){tmp.copy(baseV[a]).applyMatrix4(M);ep.push(tmp.x,tmp.y,tmp.z);tmp.copy(baseV[b]).applyMatrix4(M);ep.push(tmp.x,tmp.y,tmp.z);}
+  const eg=new THREE.BufferGeometry();eg.setAttribute('position',new THREE.Float32BufferAttribute(ep,3));
+  grp.add(new THREE.LineSegments(eg,new THREE.LineBasicMaterial({color:0xffffff,transparent:true,opacity:0.6,blending:THREE.AdditiveBlending})));
+  // pôles
+  const pn=pos.clone().addScaledVector(dir.clone().normalize(),R);
+  const ps=pos.clone().addScaledVector(dir.clone().normalize(),-R);
+  const dn=new THREE.Mesh(new THREE.SphereGeometry(0.08,10,10),new THREE.MeshBasicMaterial({color:0x88ccff}));dn.position.copy(pn);grp.add(dn);
+  const ds=new THREE.Mesh(new THREE.SphereGeometry(0.08,10,10),new THREE.MeshBasicMaterial({color:0xff8a5a}));ds.position.copy(ps);grp.add(ds);
+  // boucles de champ
+  const perp=new THREE.Vector3(1,0,0);if(Math.abs(dir.clone().normalize().dot(perp))>0.9)perp.set(0,0,1);
+  const u=new THREE.Vector3().crossVectors(dir,perp).normalize();
+  const v=new THREE.Vector3().crossVectors(dir.clone().normalize(),u).normalize();
+  const lp=[];
+  for(const lat of[0.4,0.7]){
+    const r=R*1.2*Math.sqrt(1-lat*lat);const h=R*1.2*lat;
+    for(let i=0;i<24;i++){const a1=i/24*Math.PI*2,a2=(i+1)/24*Math.PI*2;
+      for(const s of[1,-1]){
+        const px1=pos.x+dir.clone().normalize().x*h*s+u.x*Math.cos(a1)*r+v.x*Math.sin(a1)*r;
+        const py1=pos.y+dir.clone().normalize().y*h*s+u.y*Math.cos(a1)*r+v.y*Math.sin(a1)*r;
+        const pz1=pos.z+dir.clone().normalize().z*h*s+u.z*Math.cos(a1)*r+v.z*Math.sin(a1)*r;
+        const px2=pos.x+dir.clone().normalize().x*h*s+u.x*Math.cos(a2)*r+v.x*Math.sin(a2)*r;
+        const py2=pos.y+dir.clone().normalize().y*h*s+u.y*Math.cos(a2)*r+v.y*Math.sin(a2)*r;
+        const pz2=pos.z+dir.clone().normalize().z*h*s+u.z*Math.cos(a2)*r+v.z*Math.sin(a2)*r;
+        lp.push(px1,py1,pz1,px2,py2,pz2);
+      }
+    }
+  }
+  const lg=new THREE.BufferGeometry();lg.setAttribute('position',new THREE.Float32BufferAttribute(lp,3));
+  grp.add(new THREE.LineSegments(lg,new THREE.LineBasicMaterial({color:0x4466ff,transparent:true,opacity:0.2,blending:THREE.AdditiveBlending})));
+  return{pos,dir:dir.clone().normalize(),pn,ps};
+}
+
+function addFlux(pts,grp,col){
+  const lp=[];for(let i=0;i<pts.length-1;i++){lp.push(pts[i].x,pts[i].y,pts[i].z,pts[i+1].x,pts[i+1].y,pts[i+1].z);}
+  const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(lp,3));
+  grp.add(new THREE.LineSegments(g,new THREE.LineBasicMaterial({color:col||0xff6644,transparent:true,opacity:0.5,blending:THREE.AdditiveBlending})));
+}
+
+const configs={
+  pair(){
+    const sp=1.0;
+    addModule(new THREE.Vector3(0,sp/2,0),new THREE.Vector3(0,1,0),root);
+    addModule(new THREE.Vector3(0,-sp/2,0),new THREE.Vector3(0,1,0),root);
+    fitR=1.5;
+    info('① Paire N↔S','2 modules face-à-face, nord vers sud',
+      [['Maintien magnétique','tg','N attire S — très stable'],
+       ['Poussée','tw','1 seul réacteur libre (celui du bout)'],
+       ['Cusps','tg','chaque cusp couvert par le voisin'],
+       ['Scalable','tw','que 2 modules']],
+      'Le minimum viable. Un module protège l\'autre. Simple, robuste.');
+  },
+  chain(){
+    const N=6,sp=1.0;
+    for(let i=0;i<N;i++) addModule(new THREE.Vector3(0,i*sp-(N-1)*sp/2,0),new THREE.Vector3(0,(i%2?-1:1),0),root);
+    fitR=N*sp/2+1;
+    info('② Chaîne alternée','N modules N↔S↔N↔S en ligne',
+      [['Maintien','tg','chaque maillon attire le suivant'],
+       ['Poussée','tw','seul le bout pousse — les autres sont bouchés'],
+       ['Cusps','tw','cusps latéraux exposés'],
+       ['Structure','tn','flambage sous poussée — souple comme un collier']],
+      'Stable en 1D mais fléchit. Les cusps latéraux restent ouverts.');
+  },
+  ring(){
+    const N=8,r=0.5/Math.sin(Math.PI/N);
+    for(let i=0;i<N;i++){const a=i/N*Math.PI*2;
+      const pos=new THREE.Vector3(r*Math.cos(a),0,r*Math.sin(a));
+      const tang=new THREE.Vector3(-Math.sin(a),0,Math.cos(a));
+      addModule(pos,tang,root);}
+    fitR=r+1.2;
+    info('③ Anneau fermé (torique)','dipôles tangents au cercle — flux en boucle',
+      [['Maintien','tg','le flux magnétique circule en boucle fermée — auto-stable, pas de struts'],
+       ['Poussée','tn','ZÉRO — boucle fermée = loi des lacets'],
+       ['Cusps','tg','chaque cusp couvert par le champ du voisin'],
+       ['Structure','tg','anneau rigide par couplage magnétique']],
+      'La forme la plus stable. Mais ne va nulle part — c\'est une station, pas un vaisseau.');
+  },
+  cring(){
+    const N=8,gap=1,r=0.5/Math.sin(Math.PI/N);
+    for(let i=0;i<N-gap;i++){const a=(i+0.5)*2*Math.PI/N;
+      const pos=new THREE.Vector3(r*Math.cos(a),0,r*Math.sin(a));
+      const tang=new THREE.Vector3(-Math.sin(a),0,Math.cos(a));
+      addModule(pos,tang,root);}
+    // flèche de poussée à la brèche
+    const ga=0.5*2*Math.PI/N;const gp=new THREE.Vector3(r*Math.cos(Math.PI),0,r*Math.sin(Math.PI));
+    const ar=new THREE.Mesh(new THREE.ConeGeometry(0.15,0.4,12),new THREE.MeshBasicMaterial({color:0xff6644}));
+    ar.position.set(gp.x-0.6,0,gp.z);ar.rotation.z=Math.PI/2;root.add(ar);
+    fitR=r+1.5;
+    info('④ Anneau ouvert (C-shape)','anneau cassé à un point — le plasma s\'échappe par la brèche',
+      [['Maintien','tg','même couplage que l\'anneau fermé, moins 1 maillon'],
+       ['Poussée','tg','le flux s\'échappe par la brèche → POUSSÉE directionnelle'],
+       ['Cusps','tw','2 cusps exposés aux bouts de la brèche'],
+       ['Structure','tg','arc rigide par couplage magnétique']],
+      'Le meilleur compromis. Tient par magnétisme, pousse par la brèche, cusps quasi-couverts. C\'est probablement LA forme.');
+  },
+  halbach(){
+    const N=8,r=0.5/Math.sin(Math.PI/N);
+    for(let i=0;i<N;i++){const a=i/N*Math.PI*2;
+      const pos=new THREE.Vector3(r*Math.cos(a),0,r*Math.sin(a));
+      // Halbach : direction du dipôle tourne 2x plus vite que la position
+      const da=a*2;
+      const dir=new THREE.Vector3(Math.cos(da),Math.sin(da),0);
+      addModule(pos,dir,root);}
+    fitR=r+1.5;
+    info('⑤ Halbach (champ dirigé)','dipôles tournent 2× plus vite que la position → champ concentré d\'un côté',
+      [['Maintien','tw','moins stable — forces latérales complexes'],
+       ['Poussée','tw','pas de brèche naturelle'],
+       ['Bouclier','tg','champ très fort d\'un côté, quasi-nul de l\'autre → bouclier directionnel'],
+       ['Complexité','tn','orientation précise requise pour chaque module']],
+      'Puissant pour le blindage directionnel. Mais difficile à maintenir et pas de poussée naturelle.');
+  },
+  parallel(){
+    const N=7,sp=1.0;const hex=[[0,0]];
+    for(let i=0;i<6;i++){const a=i/6*Math.PI*2;hex.push([sp*Math.cos(a),sp*Math.sin(a)]);}
+    for(const[x,z]of hex.slice(0,N)) addModule(new THREE.Vector3(x,0,z),new THREE.Vector3(0,1,0),root);
+    fitR=sp+1.2;
+    info('⑥ Parallèle (radeau)','tous les dipôles alignés ↑ — comme un radeau',
+      [['Maintien','tn','dipôles parallèles se REPOUSSENT latéralement — instable sans contrainte mécanique'],
+       ['Poussée','tg','tous les réacteurs poussent dans le même sens → poussée cohérente maximale'],
+       ['Cusps','tw','cusps tous du même côté — pas de couverture mutuelle'],
+       ['Structure','tw','nécessite des struts mécaniques contre la répulsion']],
+      'Poussée maximale, mais les aimants se repoussent. Il faut des attaches mécaniques — le magnétisme travaille CONTRE vous.');
+  },
+  torus(){
+    const N=10,r=0.5/Math.sin(Math.PI/N);
+    for(let i=0;i<N;i++){const a=i/N*Math.PI*2;
+      const pos=new THREE.Vector3(r*Math.cos(a),0,r*Math.sin(a));
+      const dir=new THREE.Vector3(0,1,0); // tous verticaux
+      addModule(pos,dir,root);}
+    fitR=r+1.5;
+    info('⑦ Toroïdal','dipôles tous verticaux sur un anneau — champ toroïdal combiné',
+      [['Maintien','tw','attraction partielle N↔S entre voisins inclinés, mais pas optimal'],
+       ['Poussée','tn','symétrie annulaire → poussée nulle'],
+       ['Bouclier','tg','champ toroïdal puissant — confinement type tokamak'],
+       ['Complexité','tw','nécessite un contrôle fin de l\'espacement']],
+      'Excellent pour le confinement plasma et le bouclier. Mais pas de poussée et maintien mécanique nécessaire.');
+  }
+};
+
+function info(title,desc,rows,verdict){
+  let h=`<div class="big">${title}</div><div class="t" style="margin-top:4px">${desc}</div>`;
+  for(const[label,cls,txt]of rows) h+=`<div class="row"><span class="tag ${cls}">${label}</span><span class="t">${txt}</span></div>`;
+  h+=`<div style="margin-top:8px;padding-top:6px;border-top:1px solid #2a2a33">${verdict}</div>`;
+  document.getElementById('info').innerHTML=h;
+}
+
+let fitR=3;
+function fitCamera(n){const v=camera.fov*Math.PI/180;const h=2*Math.atan(Math.tan(v/2)*camera.aspect);const dz=Math.max(n/Math.sin(v/2),n/Math.sin(h/2));camera.position.set(0,0,dz*1.1);camera.lookAt(0,0,0);}
+let drag=false,px=0,py=0,autoR=true;
+renderer.domElement.addEventListener('pointerdown',e=>{drag=true;autoR=false;px=e.clientX;py=e.clientY;});
+window.addEventListener('pointerup',()=>drag=false);
+window.addEventListener('pointermove',e=>{if(!drag)return;root.rotation.y+=(e.clientX-px)/180;root.rotation.x+=(e.clientY-py)/180;px=e.clientX;py=e.clientY;});
+renderer.domElement.addEventListener('wheel',e=>{e.preventDefault();camera.position.z=Math.max(fitR*0.4,Math.min(fitR*5,camera.position.z+e.deltaY*0.004*fitR));},{passive:false});
+document.querySelectorAll('#bar button[data-m]').forEach(b=>{b.onclick=function(){
+  document.querySelectorAll('#bar button[data-m]').forEach(x=>x.classList.remove('on'));this.classList.add('on');
+  while(root.children.length)root.remove(root.children[0]);autoR=true;
+  configs[this.dataset.m]();fitCamera(fitR);};});
+function resize(){const w=stage.clientWidth,h=stage.clientHeight;renderer.setSize(w,h);camera.aspect=w/h;camera.updateProjectionMatrix();fitCamera(fitR);}
+window.addEventListener('resize',resize);
+function loop(){requestAnimationFrame(loop);if(autoR)root.rotation.y+=0.004;renderer.render(scene,camera);}
+resize();configs.pair();fitCamera(fitR);loop();
+</script>
+</body>
+</html>

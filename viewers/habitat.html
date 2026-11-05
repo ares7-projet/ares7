@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ARÈS-7 — habitat (croquis 3D)</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html,body { height:100%; background:#060608; color:#d8d8d2; font-family:system-ui,-apple-system,sans-serif; overflow:hidden; }
+  #wrap { display:flex; flex-direction:column; height:100vh; }
+  #bar { display:flex; align-items:center; gap:8px; padding:10px 14px; border-bottom:1px solid #1d1d22; flex-wrap:wrap; }
+  #bar h1 { font-size:14px; font-weight:500; margin-right:6px; }
+  #bar h1 span { color:#7a7a82; font-weight:400; font-size:12px; }
+  button { background:#141418; color:#cfcfca; border:1px solid #2a2a31; padding:6px 12px; border-radius:7px; font-size:12px; cursor:pointer; }
+  button.on { background:#2a2a33; border-color:#4a4a55; color:#fff; }
+  #stage { position:relative; flex:1; min-height:0; }
+  canvas { display:block; }
+  #legend { position:absolute; left:14px; bottom:14px; background:rgba(10,10,14,.85); border:1px solid #22222a;
+            border-radius:9px; padding:10px 12px; max-width:340px; font-size:11.5px; line-height:1.45; pointer-events:none; }
+  #legend .row { display:flex; align-items:center; gap:8px; margin:3px 0; }
+  #legend .dot { width:9px; height:9px; border-radius:50%; flex:none; }
+  #legend .t { color:#9a9aa2; }
+  #legend .v { margin-top:7px; padding-top:7px; border-top:1px solid #26262e; color:#d8d8d2; }
+  #hint { position:absolute; right:14px; bottom:14px; color:#5a5a62; font-size:11.5px; pointer-events:none; }
+  .lbl { position:absolute; transform:translate(-50%,-50%); font-size:12px; white-space:nowrap; pointer-events:none;
+         text-shadow:0 0 4px #000, 0 0 8px #000; font-weight:600; }
+  @media (max-width:640px){ #legend { max-width:calc(100% - 28px); font-size:10.5px; } .lbl { font-size:10.5px; } }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div id="bar">
+    <h1>ARÈS-7 <span>— version HABITÉE · croquis de principe (proposition, hors dépôt)</span></h1>
+    <button id="bCut" class="on">Coque ouverte</button>
+    <button id="bSpin" class="on">Tambour : tourne</button>
+    <button id="bSide">Vue de côté</button>
+    <button id="bLbl" class="on">Noms</button>
+    <button id="bScene">Scène : vie à bord</button>
+    <button id="bPose">Mode : croisière</button>
+    <button id="bLeg" class="on">Légende</button>
+  </div>
+  <div id="stage">
+    <div id="legend"></div>
+    <div id="hint">glisser pour tourner · molette pour zoomer</div>
+  </div>
+</div>
+
+<script src="lib/three.min.js"></script>
+<script>
+const stage = document.getElementById('stage');
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 100);
+const renderer = new THREE.WebGLRenderer({ antialias:true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
+renderer.localClippingEnabled = true;
+stage.appendChild(renderer.domElement);
+scene.add(new THREE.AmbientLight(0x64646f, 1.15));
+const key = new THREE.DirectionalLight(0xffffff, 0.85); key.position.set(4,6,5); scene.add(key);
+const rim = new THREE.DirectionalLight(0x5577ff, 0.35); rim.position.set(-5,-3,-4); scene.add(rim);
+const root = new THREE.Group(); root.rotation.x = 0.42; scene.add(root);
+const M = new THREE.Group(); M.scale.setScalar(1/6); root.add(M);        // intérieur en MÈTRES (R coque = 6 m)
+
+// coupe : on retire la moitié de la coque tournée vers la caméra (plan en coordonnées monde)
+const CLIP = new THREE.Plane(new THREE.Vector3(0,0,-1), 0);
+const clipMats = []; let cutOn = true;
+const cm = m => { m.clippingPlanes = cutOn ? [CLIP] : []; clipMats.push(m); return m; };
+
+// ---------- géodésique f2 (identique aux autres viewers) ----------
+function norm(v){ const l=Math.hypot(v[0],v[1],v[2]); return [v[0]/l,v[1]/l,v[2]/l]; }
+function buildF2(){
+  const t=(1+Math.sqrt(5))/2;
+  const ico=[[-1,t,0],[1,t,0],[-1,-t,0],[1,-t,0],[0,-1,t],[0,1,t],[0,-1,-t],[0,1,-t],[t,0,-1],[t,0,1],[-t,0,-1],[-t,0,1]].map(norm);
+  const F=[[0,11,5],[0,5,1],[0,1,7],[0,7,10],[0,10,11],[1,5,9],[5,11,4],[11,10,2],[10,7,6],[7,1,8],[3,9,4],[3,4,2],[3,2,6],[3,6,8],[3,8,9],[4,9,5],[2,4,11],[6,2,10],[8,6,7],[9,8,1]];
+  const verts=ico.slice(); const cache={};
+  const mid=(a,b)=>{ const k=a<b?a+'_'+b:b+'_'+a; if(cache[k]!=null)return cache[k]; const va=verts[a],vb=verts[b]; const m=norm([(va[0]+vb[0])/2,(va[1]+vb[1])/2,(va[2]+vb[2])/2]); const i=verts.length; verts.push(m); cache[k]=i; return i; };
+  const eset={}; const ae=(a,b)=>{ const k=a<b?a+'_'+b:b+'_'+a; eset[k]=[a,b]; };
+  const faces=[];
+  for(const [a,b,c] of F){ const ab=mid(a,b),bc=mid(b,c),ca=mid(c,a);
+    faces.push([a,ab,ca],[b,bc,ab],[c,ca,bc],[ab,bc,ca]);
+    ae(a,ab);ae(ab,b);ae(b,bc);ae(bc,c);ae(c,ca);ae(ca,a);ae(ab,bc);ae(bc,ca);ae(ca,ab); }
+  return { verts, edges:Object.values(eset), faces, orig:12 };
+}
+const G = buildF2();
+const v3 = a => new THREE.Vector3(a[0],a[1],a[2]);
+const fcRaw = f => new THREE.Vector3().add(v3(G.verts[f[0]])).add(v3(G.verts[f[1]])).add(v3(G.verts[f[2]])).multiplyScalar(1/3);
+// orientation FACE-PÔLE (validée) : axe de poussée = y ; réacteur en bas, habitat en haut
+const q0 = new THREE.Quaternion().setFromUnitVectors(fcRaw(G.faces[3]).clone().normalize(), new THREE.Vector3(0,1,0));
+G.verts = G.verts.map(a => { const p = v3(a).applyQuaternion(q0); return [p.x,p.y,p.z]; });
+const central = []; for(let i=0;i<20;i++) central.push(i*4+3);
+const cInfo = central.map(fi => { const c = fcRaw(G.faces[fi]); return { fi, c, n: c.clone().normalize() }; });
+cInfo.sort((a,b)=>Math.abs(b.c.y)-Math.abs(a.c.y));
+const polar = [cInfo[0], cInfo[1]], rest = cInfo.slice(2);
+const pairs = [], used = new Set();
+for(const A of rest){ if(used.has(A.fi)) continue; let best=null, bd=1e9;
+  for(const B of rest){ if(B.fi===A.fi||used.has(B.fi)) continue; const d=A.n.clone().add(B.n).length(); if(d<bd){bd=d;best=B;} }
+  if(best){ used.add(A.fi); used.add(best.fi); pairs.push([A,best]); } }
+pairs.sort((p,q2)=>Math.abs(p[0].c.y)-Math.abs(q2[0].c.y));
+const sasPair = pairs[0];
+
+// ---------- coque ----------
+(function shell(){
+  const B = { normal:[], polar:[], sas:[] };
+  const sasSet = new Set([sasPair[0].fi, sasPair[1].fi]), polSet = new Set([polar[0].fi, polar[1].fi]);
+  G.faces.forEach((f,k)=>{ const d = sasSet.has(k)?B.sas : polSet.has(k)?B.polar : B.normal;
+    for(const i of f){ const v=G.verts[i]; d.push(v[0],v[1],v[2]); } });
+  const mk=(arr,mat)=>{ const g=new THREE.BufferGeometry(); g.setAttribute('position',new THREE.Float32BufferAttribute(arr,3)); g.computeVertexNormals(); root.add(new THREE.Mesh(g,cm(mat))); };
+  mk(B.normal, new THREE.MeshStandardMaterial({color:0x0d0d11, roughness:1, side:THREE.DoubleSide, flatShading:true, transparent:true, opacity:.88}));
+  mk(B.polar,  new THREE.MeshStandardMaterial({color:0x223344, emissive:0x1a3a55, emissiveIntensity:.8, roughness:1, side:THREE.DoubleSide, flatShading:true}));
+  mk(B.sas,    new THREE.MeshStandardMaterial({color:0x1d3a2a, emissive:0x2a8a55, emissiveIntensity:.9, roughness:1, side:THREE.DoubleSide, flatShading:true}));
+  const pos=[]; for(const [a,b] of G.edges){ const va=G.verts[a],vb=G.verts[b]; pos.push(...va,...vb); }
+  const g=new THREE.BufferGeometry(); g.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));
+  root.add(new THREE.LineSegments(g, cm(new THREE.LineBasicMaterial({color:0xffffff, transparent:true, opacity:.75}))));
+  for(let i=0;i<G.orig;i++){ const s=new THREE.Mesh(new THREE.SphereGeometry(0.035,10,10), cm(new THREE.MeshBasicMaterial({color:0xbfe0ff})));
+    s.position.set(...G.verts[i]); root.add(s); }
+})();
+
+// ---------- intérieur (mètres) — disposition « sandwich » (v2, 21/10) ----------
+// faces-sas = faces centrales à y = ±1,87 m (inclinées 19,5°) → tambour à l'ÉQUATEUR entre elles, ponts FIXES dessus/dessous
+const COL = { reac:0xff8a3d, shield:0xb07cff, tank:0x4fb3bf, gal:0x2b4a66, drum:0x3f8f5a, water:0x2f6fd6, sas:0x46d17a, warn:0xffcc33, hub:0x5a7a96 };
+const solid = (c, o={}) => cm(new THREE.MeshStandardMaterial(Object.assign({color:c, roughness:.8, side:THREE.DoubleSide}, o)));
+const glass = (c, op) => cm(new THREE.MeshStandardMaterial({color:c, transparent:true, opacity:op, depthWrite:false, side:THREE.DoubleSide, roughness:1}));
+const add = (geo, mat, y=0, parent=M) => { const m=new THREE.Mesh(geo, mat); m.position.y=y; parent.add(m); return m; };
+const ringY = (r1, r2, y, mat, parent=M) => { const m=add(new THREE.RingGeometry(r1,r2,64), mat, y, parent); m.rotation.x=-Math.PI/2; return m; };
+const RU=5.4, xr = y => Math.sqrt(RU*RU - y*y);
+const RF=3.69, RO=3.95, RC=RF-2.1, YD=1.27, L=2*YD, YT0=1.37, YP=2.9, RH=0.45;
+const az = info => Math.atan2(info.n.x, info.n.z);
+const AZ_HI = az(sasPair[0].c.y > 0 ? sasPair[0] : sasPair[1]), AZ_LO = az(sasPair[0].c.y > 0 ? sasPair[1] : sasPair[0]);
+
+// ponts FIXES (0 g) haut et bas : enveloppe = tranche de sphère
+const YPH = 3.5;                                           // plafond du pont haut : 2,13 m de haut → étage où l'on tient debout une fois posé (recoupé 22/10)
+for(const s of [1,-1]){
+  const yt = s>0 ? YPH : YP;
+  const pts=[]; for(let i=0;i<=16;i++){ const y=YT0+(yt-YT0)*i/16; pts.push(new THREE.Vector2(xr(y), y)); }
+  const deck = add(new THREE.LatheGeometry(pts, 64), glass(COL.gal,.30)); if(s<0) deck.scale.y=-1;
+  ringY(RH, xr(YT0), s*YT0, glass(COL.gal,.32)); ringY(RH, xr(yt), s*yt, glass(COL.gal,.32));
+}
+// anneau d'eau autour du tambour = 2ᵉ ROUE contrarotative (anti-gyroscope) : bouclier + réserve + tampon thermique + volant (recoupé : ~10 t plaquées contre la paroi → 3,6 tr/min)
+const anneau = new THREE.Group(); M.add(anneau);
+{ const pts=[]; for(let i=0;i<=16;i++){ const y=-1.37+2.74*i/16; pts.push(new THREE.Vector2(xr(y), y)); }
+  add(new THREE.LatheGeometry(pts, 64), glass(COL.water,.30), 0, anneau);
+  add(new THREE.CylinderGeometry(4.05,4.05,2.74,64,1,true), glass(COL.water,.30), 0, anneau);
+  for(let k=0;k<12;k++){ const a=k*Math.PI/6, b=add(new THREE.BoxGeometry(0.08,2.6,0.08), solid(0x7fb0ff,{emissive:0x2050a0}), 0, anneau);
+    b.position.x=4.6*Math.sin(a); b.position.z=4.6*Math.cos(a); } }
+// moyeu FIXE Ø 0,9 m sur l'axe : on passe du fixe au tournant près de l'axe (≤ 0,5 m/s)
+add(new THREE.CylinderGeometry(RH,RH,3.5-1.2,24,1,true), glass(COL.hub,.28), (3.5+1.2)/2); add(new THREE.CylinderGeometry(RH,RH,YP-1.2,24,1,true), glass(COL.hub,.28), -(YP+1.2)/2);
+// tunnels Ø 1,0 m (horizontaux, adaptateur en coin de 19,5° à la face) : moyeu → face-sas
+for(const [a, y] of [[AZ_HI, 1.87], [AZ_LO, -1.87]]){
+  const len = xr(y) - RH, t = add(new THREE.CylinderGeometry(0.5,0.5,len,24,1,true), glass(COL.sas,.38), y);
+  t.rotation.z = Math.PI/2; t.rotation.y = a - Math.PI/2;
+  t.position.x = (RH+len/2)*Math.sin(a); t.position.z = (RH+len/2)*Math.cos(a);
+}
+// ABRI = POSTE DE COMMANDE : pont du haut, sous la calotte d'eau, à l'opposé de la face-sas haute (planche D : 2,85 × 1,20 × 1,90 m, murs d'eau 0,15 m)
+const AZ_ABRI = AZ_HI + Math.PI, abri = new THREE.Group(); M.add(abri);
+// BULLE CENTRALE (idée de l'auteur 22/10) : capsule FIXE accrochée au moyeu, dans le creux du tambour — endroit le mieux protégé,
+// câbles/air par le moyeu fixe (aucun joint tournant), accès direct depuis le pont haut. Pas de cardan : posé, des jambes réglables mettent tout d'aplomb.
+abri.rotation.y = AZ_ABRI - Math.PI/2;
+add(new THREE.CylinderGeometry(1.40, 1.40, 2.40, 48), glass(COL.water,.40), 0, abri);
+add(new THREE.CylinderGeometry(1.25, 1.25, 2.10, 48), glass(COL.gal,.30), 0, abri);
+
+// tambour TOURNANT à l'équateur : sol R 3,69 m (0,38 g), coque 3,95 m, y ±1,27 (L 2,54 m)
+const drum = new THREE.Group(); M.add(drum);
+add(new THREE.CylinderGeometry(RO,RO,L,72,1,true), glass(COL.drum,.30), 0, drum);
+add(new THREE.CylinderGeometry(RC,RC,L,48,1,true), glass(COL.drum,.10), 0, drum);
+ringY(0.5, RO, -YD, glass(COL.drum,.14), drum); ringY(0.5, RO, YD, glass(COL.drum,.14), drum);
+const W_ = L, PC = 0.62;                                   // largeur du sol (axe) ; passage le long d'une paroi d'extrémité
+add(new THREE.CylinderGeometry(RF-0.004,RF-0.004,PC,96,1,true), solid(0x16303f), -YD+PC/2, drum);
+// les pièces (planche B) : longueur le long du sol → angle = s / R ; cloisons arrêtées au passage (portes)
+const ZONES = [[0,2,0x3f8f5a],[2,2,0x3f8f5a],[4,2,0x2a5a3c],[6,2.2,0x2f6fd6],[8.2,4,0xc9853f],[12.2,1.4,0x7f93a8],[13.6,3.6,0xb05a8f],[17.2,3.2,0x4fb3bf],[20.4,2*Math.PI*RF-20.4,0x8a6fd1]];
+for(const [s,w,c] of ZONES){
+  add(new THREE.CylinderGeometry(RF,RF,L,Math.max(6,Math.round(w*4)),1,true,s/RF,w/RF), solid(c,{emissive:c, emissiveIntensity:.18}), 0, drum);
+  const wall = add(new THREE.PlaneGeometry(RF-RC, W_-PC), glass(0xdfe9f3,.22), -YD+PC+(W_-PC)/2, drum);
+  const th = s/RF; wall.position.x=(RF+RC)/2*Math.sin(th); wall.position.z=(RF+RC)/2*Math.cos(th); wall.rotation.y=th-Math.PI/2;
+}
+
+// ---------- mobilier : repère local au sol (X = le long du sol, Y = vers l'axe, Z = dans l'axe) ----------
+const MOB = solid(0x1b2b3a,{emissive:0x0a1520}), METAL = solid(0x9fb4c8), MATELAS = solid(0x5b7088), COUV = solid(0x3d5f86),
+      BOIS = solid(0xc9a77a), ROUGE = solid(0xd33b3b,{emissive:0x551010}), JAUNE = solid(0xffcc66,{emissive:0x664400}), SOMBRE = solid(0x2a3a4a);
+const ECRAN = c => cm(new THREE.MeshBasicMaterial({color:c, side:THREE.DoubleSide}));
+function bx(g, dim, pos, mat){ const m=new THREE.Mesh(new THREE.BoxGeometry(...dim), mat); m.position.set(...pos); g.add(m); return m; }
+function cyl(g, a, b, r, mat){ const A=new THREE.Vector3(...a), B=new THREE.Vector3(...b), d=B.clone().sub(A);
+  const m=new THREE.Mesh(new THREE.CylinderGeometry(r,r,d.length(),12), mat); m.position.copy(A).addScaledVector(d,.5);
+  m.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0), d.normalize()); g.add(m); return m; }
+function ecran(g, w, h, pos, rotY, c){ const e=new THREE.Mesh(new THREE.PlaneGeometry(w,h), ECRAN(c)); e.position.set(...pos); e.rotation.y=rotY; g.add(e); return e; }
+function poser(obj, s, a, h=0, cap=0){                    // pose un meuble à l'abscisse s (m), position a dans l'axe (0 → 2,54), hauteur h
+  const th=s/RF, n=new THREE.Vector3(Math.sin(th),0,Math.cos(th)), t=new THREE.Vector3(Math.cos(th),0,-Math.sin(th));
+  const w=new THREE.Group(); obj.rotation.y=cap; w.add(obj);
+  w.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(t, n.clone().negate(), new THREE.Vector3(0,1,0)));
+  w.position.copy(n.multiplyScalar(RF-h)).add(new THREE.Vector3(0,-YD+a,0)); drum.add(w); return w;
+}
+const ptDrum = (s, a, h) => { const th=s/RF; return new THREE.Vector3((RF-h)*Math.sin(th), -YD+a, (RF-h)*Math.cos(th)); };
+// cabines : couchette dans l'axe, casier + écran, rangement haut
+const lits = [];
+for(const x0 of [0,2,4]){
+  const g=new THREE.Group();
+  bx(g,[0.80,0.36,1.92],[0,0.18,0],MOB); bx(g,[0.78,0.14,1.90],[0,0.43,0],MATELAS); bx(g,[0.60,0.08,0.24],[0,0.54,0.80],METAL);
+  bx(g,[0.80,0.40,1.60],[0,1.82,0.15],MOB); lits.push(g); poser(g, x0+0.48, PC+0.96);
+  const k=new THREE.Group(); bx(k,[0.62,1.95,0.60],[0,0.975,0],MOB); ecran(k,0.42,0.28,[0,1.29,-0.302],Math.PI,0x5fd0e0); poser(k, x0+1.61, W_-0.31);
+}
+// toilette à aspiration, lavabo, douche FERMÉE (jet dévié par Coriolis → air aspiré vers la grille)
+{ const g=new THREE.Group(); cyl(g,[0,0,0],[0,0.40,0],0.20,MOB); bx(g,[0.5,0.4,0.12],[0,0.60,0.28],MOB); poser(g,6.5,2.15);
+  const l=new THREE.Group(); bx(l,[0.55,0.85,0.42],[0,0.425,0],MOB); bx(l,[0.40,0.02,0.30],[0,0.86,0],METAL); poser(l,6.42,1.26);
+  const d=new THREE.Group(); bx(d,[1.04,2.05,1.35],[0,1.025,0],glass(0x1d4f7a,.42)); bx(d,[1.0,0.02,1.30],[0,0.01,0],METAL);
+  cyl(d,[0.30,1.05,0.45],[0.30,1.35,0.45],0.03,METAL); bx(d,[0.8,0.03,1.0],[0,2.0,0],solid(0xcfe8ff,{emissive:0x334455})); poser(d,7.62,PC+1.225); }
+// cuisine + table (on s'assoit normalement à 0,38 g)
+{ const g=new THREE.Group(); bx(g,[1.0,0.90,0.60],[0,0.45,0],MOB); bx(g,[1.04,0.04,0.62],[0,0.92,0],METAL); bx(g,[1.0,0.55,0.40],[0,1.675,0.10],MOB); poser(g,8.8,W_-0.31);
+  const fr=new THREE.Group(); bx(fr,[0.5,1.2,0.66],[0,0.6,0],solid(0xdfe6ee,{emissive:0x222a33})); poser(fr,8.55,W_-0.97);
+  const t=new THREE.Group(); bx(t,[1.4,0.04,0.8],[0,0.74,0],BOIS); cyl(t,[0,0,0],[0,0.72,0],0.05,METAL); cyl(t,[0,0,0],[0,0.02,0],0.30,METAL); poser(t,10.2,1.55); }
+function chaise(){ const c=new THREE.Group(); bx(c,[0.45,0.04,0.45],[0,0.44,0],solid(0x6d6a65)); bx(c,[0.45,0.50,0.04],[0,0.71,-0.22],solid(0x6d6a65));
+  for(const [x,z] of [[-0.2,-0.2],[0.2,-0.2],[-0.2,0.2],[0.2,0.2]]) cyl(c,[x,0,z],[x,0.42,z],0.015,METAL); return c; }
+poser(chaise(),9.15,1.55,0,Math.PI/2); poser(chaise(),11.25,1.55,0,-Math.PI/2); poser(chaise(),10.2,0.85,0,0);
+// échelle vers le moyeu fixe
+{ const g=new THREE.Group(), H=2.1; for(const x of [-0.22,0.22]) cyl(g,[x,0,0],[x,H,0],0.02,METAL);
+  for(let y=0.3;y<H;y+=0.3) bx(g,[0.44,0.025,0.03],[0,y,0],METAL); poser(g,12.9,0.25); }
+// sport : tapis DANS L'AXE (courir dans le sens de rotation changerait le poids de 0 à 1,2 g) + vélo
+{ const g=new THREE.Group(); bx(g,[0.84,0.18,1.75],[0,0.09,0],MOB); bx(g,[0.66,0.01,1.6],[0,0.185,0],SOMBRE);
+  for(const x of [-0.40,0.40]){ for(const z of [-0.75,0.75]) cyl(g,[x,0.18,z],[x,1.02,z],0.02,METAL); cyl(g,[x,1.02,-0.75],[x,1.02,0.75],0.02,METAL); }
+  bx(g,[0.6,0.30,0.08],[0,1.15,0.84],MOB); ecran(g,0.40,0.20,[0,1.17,0.795],Math.PI,0x6fe0a0); poser(g,14.62,PC+0.975);
+  const v=new THREE.Group(); bx(v,[0.30,0.30,0.90],[0,0.15,0],MOB);
+  const roue=new THREE.Mesh(new THREE.CylinderGeometry(0.22,0.22,0.06,24), MOB); roue.rotation.z=Math.PI/2; roue.position.set(0,0.42,0.28); v.add(roue);
+  cyl(v,[0,0.30,-0.25],[0,0.82,-0.30],0.02,METAL); bx(v,[0.22,0.04,0.26],[0,0.84,-0.30],METAL); cyl(v,[0,0.30,0.30],[0,1.02,0.38],0.02,METAL); bx(v,[0.45,0.03,0.04],[0,1.03,0.38],METAL);
+  poser(v,16.35,W_-0.55); }
+// labo + poste de quart (écrans, chaise), baie d'expériences
+{ const g=new THREE.Group(); bx(g,[1.1,0.04,0.78],[0,0.74,0],METAL); bx(g,[0.30,0.72,0.70],[0.40,0.36,0],MOB);
+  ecran(g,0.45,0.30,[-0.25,1.0,0.33],Math.PI,0x5fd0e0); ecran(g,0.45,0.30,[0.25,1.0,0.33],Math.PI,0x6fe0a0); ecran(g,0.95,0.45,[0,1.55,0.38],Math.PI,0x5fd0e0);
+  poser(g,18.9,W_-0.41); poser(chaise(),18.9,W_-1.10,0,0);
+  const r=new THREE.Group(); bx(r,[0.5,1.85,0.6],[0,0.925,0],MOB); for(const y of [0.4,0.8,1.2,1.6]) bx(r,[0.4,0.02,0.01],[0,y,-0.305],solid(0x5fd0e0,{emissive:0x1f6670}));
+  poser(r,20.0,W_-0.31); }
+// infirmerie : table d'examen + pharmacie
+{ const g=new THREE.Group(); bx(g,[1.8,0.12,0.8],[0,0.68,0],MATELAS); for(const x of [-0.8,0.8]) for(const z of [-0.3,0.3]) cyl(g,[x,0,z],[x,0.62,z],0.025,METAL); poser(g,21.65,W_-0.6);
+  const p=new THREE.Group(); bx(p,[0.48,1.9,0.6],[0,0.95,0],MOB); bx(p,[0.06,0.18,0.01],[0,1.29,-0.305],ROUGE); bx(p,[0.18,0.06,0.01],[0,1.29,-0.305],ROUGE); poser(p,22.89,W_-0.31); }
+// éclairage au plafond de chaque pièce
+for(const [s,w] of ZONES) poser((()=>{ const g=new THREE.Group(); bx(g,[0.6,0.03,0.3],[0,0,0],solid(0xffffff,{emissive:0xdde8f2, emissiveIntensity:.8})); return g; })(), s+w/2, 1.6, 2.07);
+
+// ---------- silhouettes humaines (proportions réelles, 1,75 m) ----------
+const SUIT = new THREE.MeshStandardMaterial({color:0xc9d3de, roughness:.65, metalness:0}), SKIN = new THREE.MeshStandardMaterial({color:0xe9eef3, roughness:.6});
+const UP = new THREE.Vector3(0,1,0);
+function limb(g, a, b, r1, r2, mat){                       // segment tronconique entre 2 articulations
+  const A=new THREE.Vector3(...a), B=new THREE.Vector3(...b), d=B.clone().sub(A);
+  const m=new THREE.Mesh(new THREE.CylinderGeometry(r2,r1,d.length(),14), cm(mat.clone()));
+  m.position.copy(A).addScaledVector(d,.5); m.quaternion.setFromUnitVectors(UP, d.clone().normalize()); g.add(m);
+  const j=new THREE.Mesh(new THREE.SphereGeometry(r2,14,10), cm(mat.clone())); j.position.copy(B); g.add(j);
+}
+function blob(g, p, s, mat){ const m=new THREE.Mesh(new THREE.SphereGeometry(1,20,14), cm(mat.clone())); m.position.set(...p); m.scale.set(...s); g.add(m); return m; }
+const POSES = {                                             // [épaule, coude, poignet], [hanche, genou, cheville] ; dy = descente du haut du corps
+  debout:  {dy:0,     bras:[[0.20,1.39,0],[0.235,1.12,-0.01],[0.25,0.87,0.04]], jamb:[[0.09,0.88,0],[0.095,0.49,0.01],[0.10,0.08,-0.01]]},
+  assis:   {dy:-0.36, bras:[[0.20,1.03,0],[0.22,0.80,0.05],[0.24,0.78,0.30]],   jamb:[[0.09,0.53,0],[0.10,0.52,0.43],[0.10,0.09,0.45]]},
+  capsule: {dy:0,     bras:[[0.20,1.39,0],[0.20,1.12,0],[0.20,0.923,0.154]],    jamb:[[0.09,0.88,0],[0.09,0.715,0.353],[0.09,0.321,0.284]]},
+  course:  {dy:0,     bras:[[0.20,1.39,0],[0.23,1.15,-0.12],[0.25,1.05,0.10]],  jamb:[[0.09,0.88,0],[0.10,0.55,0.20],[0.10,0.18,0.05]]}};
+function humain(pose){                                      // pieds en 0, tête vers +y, regard vers +z
+  const P=POSES[pose], g=new THREE.Group(), dy=P.dy;
+  const tr=[[0.13,0.86],[0.165,0.95],[0.14,1.07],[0.165,1.25],[0.19,1.38],[0.12,1.45],[0.06,1.47]].map(([r,y])=>new THREE.Vector2(r,y+dy));
+  const torse=new THREE.Mesh(new THREE.LatheGeometry(tr,20), cm(SUIT.clone())); torse.scale.z=0.62; g.add(torse);
+  blob(g,[0,0.90+dy,0],[0.165,0.10,0.11],SUIT);
+  limb(g,[0,1.45+dy,0],[0,1.53+dy,0.01],0.05,0.048,SKIN);
+  blob(g,[0,1.635+dy,0.01],[0.083,0.112,0.095],SKIN);
+  for(const s of [1,-1]){
+    const B=P.bras.map(([x,y,z])=>[s*x,y,z]), J=P.jamb.map(([x,y,z])=>[s*x,y,z]);
+    blob(g,[s*0.185,1.40+dy,0],[0.065,0.06,0.065],SUIT);
+    limb(g,B[0],B[1],0.048,0.040,SUIT); limb(g,B[1],B[2],0.038,0.030,SUIT);
+    blob(g,[B[2][0],B[2][1]-0.065,B[2][2]],[0.03,0.07,0.045],SKIN);
+    limb(g,J[0],J[1],0.078,0.052,SUIT); limb(g,J[1],J[2],0.050,0.036,SUIT);
+    blob(g,[J[2][0],J[2][1]-0.045,J[2][2]+0.07],[0.045,0.035,0.12],SUIT);
+  }
+  return g;
+}
+const base = (x,y,z) => new THREE.Matrix4().makeBasis(new THREE.Vector3(...x), new THREE.Vector3(...y), new THREE.Vector3(...z));
+
+// ---------- équipage de 2, par quarts : « vie à bord » (l'un dort, l'autre est de quart) / « alerte éruption » (les 2 attachés à l'abri)
+const vie = new THREE.Group(), alerte = new THREE.Group(); drum.add(vie); abri.add(alerte); alerte.visible=false;
+{ const d=humain('debout'); d.quaternion.setFromRotationMatrix(base([-1,0,0],[0,0,1],[0,1,0])); d.position.set(0,0.63,-0.92);  // dort sur le dos, tête sur l'oreiller
+  lits[0].add(d); bx(lits[0],[0.62,0.10,1.25],[0,0.74,-0.28],COUV); vie.userData.dormeur=d; }
+{ const q=humain('assis'); poser(q,18.9,W_-1.10,0,0); vie.add(q.parent); }                                                  // de quart, au poste de secours
+// POSTE DE COMMANDE (planche D) : sièges inclinés type capsule, harnais, étriers, RHC main droite / THC main gauche, tableau au plafond
+for(const zc of [-0.45, 0.45]){
+  bx(abri,[1.07,0.11,0.58],[-0.61,-0.365,zc],MATELAS);
+  for(const dz of [-0.27,0.27]) bx(abri,[0.36,0.11,0.04],[-1.025,-0.255,zc+dz],MATELAS);
+  bx(abri,[0.44,0.06,0.48],[0.215,0.03,zc],MATELAS);
+  for(const [x,y1] of [[-0.975,-0.42],[-0.225,-0.42],[0.195,0]]) cyl(abri,[x,-0.6,zc],[x,y1,zc],0.025,METAL);
+  for(const dz of [-0.2,0.2]) bx(abri,[0.11,0.27,0.02],[0.47,0.165,zc+dz],METAL);
+  for(const dz of [-0.36,0.36]){ bx(abri,[0.42,0.05,0.08],[-0.265,-0.175,zc+dz],METAL); cyl(abri,[-0.20,-0.15,zc+dz],[-0.20,0.0,zc+dz],0.012,JAUNE);
+    const gp=new THREE.Mesh(new THREE.SphereGeometry(0.035,12,10), JAUNE); gp.position.set(-0.20,0.02,zc+dz); abri.add(gp); }
+  for(const x of [-0.625,-0.275]) bx(alerte,[0.05,0.02,0.40],[x,x<-0.5?-0.02:-0.04,zc],SOMBRE);
+  const p=humain('capsule'); p.quaternion.setFromRotationMatrix(base([0,0,-1],[-1,0,0],[0,1,0])); p.position.set(0.705,-0.18,zc); alerte.add(p);
+}
+bx(abri,[1.06,0.10,1.55],[-0.615,0.43,0],SOMBRE);                                                                            // tableau de bord
+[[-0.495,0x5fd0e0],[0,0x6fe0a0],[0.495,0x5fd0e0]].forEach(([z,c])=>{ const e=new THREE.Mesh(new THREE.PlaneGeometry(0.40,0.46), ECRAN(c)); e.rotation.x=Math.PI/2; e.position.set(-0.90,0.376,z); abri.add(e); });
+const CW = []; [0xff6b6b,0xff6b6b,0xffcc66,0xffcc66,0xffcc66,0xff6b6b,0xffcc66,0xffcc66].forEach((c,k)=>{
+  const e=new THREE.Mesh(new THREE.PlaneGeometry(0.05,0.16), cm(new THREE.MeshBasicMaterial({color:0x2a2a2a, side:THREE.DoubleSide})));
+  e.rotation.x=Math.PI/2; e.position.set(-1.12,0.376,-0.65+k*0.186); abri.add(e); CW.push([e,c]); });
+for(let k=0;k<7;k++) bx(abri,[0.06,0.03,0.08],[-0.30,0.365,-0.63+k*0.21],k<2?ROUGE:JAUNE);                                  // boutons sous capot
+{ const inter=new THREE.Group(); [...abri.children].slice(2).forEach(o=>inter.add(o)); inter.position.set(0.34,-0.45,0); abri.add(inter); }   // couchettes sur le fond
+for(const y of [1.05,-1.05]){ const tr=new THREE.Mesh(new THREE.TorusGeometry(0.40,0.03,10,32), solid(COL.sas,{emissive:0x1a8a4a})); tr.rotation.x=Math.PI/2; tr.position.y=y; abri.add(tr); }
+cyl(abri,[-0.95,0.2,-0.6],[-0.95,0.5,-0.6],0.07,ROUGE);                                                  // extincteur
+bx(abri,[0.9,0.03,0.9],[0,1.03,0],solid(0xffffff,{emissive:0xdde8f2, emissiveIntensity:.8}));
+function changerScene(alarme){ vie.visible=!alarme; vie.userData.dormeur.visible=!alarme; alerte.visible=alarme;
+  CW.forEach(([e,c],k)=>e.material.color.setHex(alarme && k===4 ? c : 0x2a2a2a)); }
+
+// calotte haute : eau (bouclier) entre le pont du haut et le pôle habitat
+add(new THREE.SphereGeometry(RU,48,16,0,Math.PI*2,0,Math.acos(3.6/RU)), glass(COL.water,.38));
+ringY(0, xr(3.6), 3.6, glass(COL.water,.30));
+
+// bas : bouclier d'ombre, réacteur, réservoirs
+add(new THREE.CylinderGeometry(1.9,1.9,0.4,40), solid(COL.shield,{emissive:0x3a2266}), -3.15);
+add(new THREE.CylinderGeometry(0.95,0.95,1.8,32), solid(COL.reac,{emissive:0xff6a1a, emissiveIntensity:.55}), -4.35);
+for(let k=0;k<6;k++){ const a=k*Math.PI/3+Math.PI/6, t=add(new THREE.CylinderGeometry(0.55,0.55,0.9,20), solid(COL.tank,{emissive:0x184e55}), -3.9);
+  t.position.x=2.1*Math.sin(a); t.position.z=2.1*Math.cos(a); }
+
+// PONT BAS (fixe, 0 g) = SOUTE + LABO D'ANALYSE (22/10, recoupé) : fret sur l'axe et symétrique (pas de balourd, pas de couple de poussée),
+// entre le réacteur et l'équipage → blindage en plus au retour ; échantillons entrés par la face-sas basse → boîte à gants (quarantaine) → soute
+const pontBas = new THREE.Group(); M.add(pontBas);
+for(let k=0;k<6;k++){ const az=AZ_LO+Math.PI/6+k*Math.PI/3, c=new THREE.Group();
+  bx(c,[1.0,1.15,1.0],[0,0,0],solid(0x6d5a3a,{emissive:0x2a2010})); bx(c,[1.02,0.04,1.02],[0,0.3,0],METAL); bx(c,[1.02,0.04,1.02],[0,-0.3,0],METAL);
+  c.position.set(2.3*Math.sin(az), -2.30, 2.3*Math.cos(az)); c.rotation.y=az; pontBas.add(c); }
+{ const az=AZ_LO+0.75, l=new THREE.Group();
+  bx(l,[1.4,0.85,0.6],[0,-0.42,0],MOB); bx(l,[1.3,0.55,0.55],[0,0.28,0],glass(0x9fd0ff,.35));                    // paillasse + boîte à gants
+  for(const x of [-0.3,0.3]){ const g=new THREE.Mesh(new THREE.TorusGeometry(0.09,0.02,8,20), SOMBRE); g.position.set(x,0.22,0.28); l.add(g); }
+  bx(l,[0.25,0.35,0.2],[0.5,0.2,-0.1],METAL); ecran(l,0.5,0.32,[-0.4,0.75,-0.25],0,0x5fd0e0);
+  l.position.set(4.0*Math.sin(az), -2.35, 4.0*Math.cos(az)); l.rotation.y=az+Math.PI/2; pontBas.add(l); }
+// MODE POSÉ (idée gardée 22/10, recoupée) : moteur principal coupé à quelques mètres, fin sur propulseurs d'appoint, 4 jambes amortissent
+const posé = new THREE.Group(); M.add(posé); posé.visible=false; let pose=false;
+const sol = new THREE.Mesh(new THREE.CircleGeometry(22,64), new THREE.MeshStandardMaterial({color:0x8a4a2e, roughness:1, side:THREE.DoubleSide}));
+sol.rotation.x=-Math.PI/2; sol.position.y=-7.3; posé.add(sol);
+for(let k=0;k<4;k++){ const a=AZ_LO+k*Math.PI/2, n=new THREE.Vector3(Math.sin(a),0,Math.cos(a));
+  const haut=n.clone().multiplyScalar(4.6).setY(-3.2), pied=n.clone().multiplyScalar(7.6).setY(-7.15), genou=n.clone().multiplyScalar(5.6).setY(-5.6);
+  cyl(posé,[haut.x,haut.y,haut.z],[pied.x,pied.y,pied.z],0.12,METAL); cyl(posé,[genou.x,-4.2,genou.z].map((v,i)=>i==1?v:v*0.86),[genou.x,genou.y,genou.z],0.08,METAL);
+  const pad=new THREE.Mesh(new THREE.CylinderGeometry(0.55,0.65,0.15,20), METAL); pad.position.set(pied.x,-7.22,pied.z); posé.add(pad);
+  const ap=new THREE.Mesh(new THREE.ConeGeometry(0.15,0.4,12), solid(0xffcc66,{emissive:0x664400})); ap.position.copy(n.clone().multiplyScalar(5.3).setY(-2.6)); ap.rotation.x=Math.PI; posé.add(ap); }
+{ const az=AZ_ABRI+Math.PI/2; for(const [r,da] of [[2.6,0],[3.4,0.25]]){                     // 2 personnes debout dans le pont haut (0,38 g sur Mars)
+    const h=humain('debout'); h.position.set(r*Math.sin(az+da), YT0, r*Math.cos(az+da)); h.rotation.y=az+da+Math.PI; posé.add(h); } }
+// dehors : jet, fuite du cusp, radiateurs
+const jet = new THREE.Mesh(new THREE.ConeGeometry(1.9,4.6,32,1,true),
+  new THREE.MeshBasicMaterial({color:COL.reac, transparent:true, opacity:.22, depthWrite:false, side:THREE.DoubleSide, blending:THREE.AdditiveBlending}));
+jet.position.y=-5.74-2.3; M.add(jet);
+const jetCore = new THREE.Mesh(new THREE.CylinderGeometry(0.06,0.25,4.6,12),
+  new THREE.MeshBasicMaterial({color:0xffc08a, transparent:true, opacity:.8, blending:THREE.AdditiveBlending}));
+jetCore.position.y=-5.74-2.3; M.add(jetCore);
+const cusps=[];
+for(const dx of [-1.1,0,1.1]){
+  const g=new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(dx*0.3,5.8,0), new THREE.Vector3(dx*1.3,8.0,0)]);
+  const l=new THREE.Line(g,new THREE.LineDashedMaterial({color:COL.warn, dashSize:.25, gapSize:.18})); l.computeLineDistances(); M.add(l); cusps.push(l);
+}
+for(let k=0;k<4;k++){                                   // 4 radiateurs en jupe, décalés de 45° des faces-sas
+  const a = AZ_LO + Math.PI/4 + k*Math.PI/2, beta = Math.atan2(3.3,6.6), len = Math.hypot(6.6,3.3);
+  const u = new THREE.Vector3(Math.sin(a)*Math.cos(beta), -Math.sin(beta), Math.cos(a)*Math.cos(beta));
+  const t = new THREE.Vector3(Math.cos(a), 0, -Math.sin(a)), n = new THREE.Vector3().crossVectors(u,t);
+  const pnl = new THREE.Mesh(new THREE.PlaneGeometry(len, 3.2),
+    cm(new THREE.MeshStandardMaterial({color:0x8d9aa8, emissive:0x1c242e, roughness:.6, side:THREE.DoubleSide, transparent:true, opacity:.6, depthWrite:false})));
+  pnl.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(u,t,n));
+  pnl.position.set(Math.sin(a)*8.3, -4.95, Math.cos(a)*8.3); M.add(pnl);
+}
+// écoutilles des faces-sas (coordonnées coque)
+for(const info of sasPair){
+  const f=G.faces[info.fi], A=v3(G.verts[f[0]]), B=v3(G.verts[f[1]]), C=v3(G.verts[f[2]]);
+  const cen=new THREE.Vector3().add(A).add(B).add(C).multiplyScalar(1/3), n=info.n;
+  const a=B.distanceTo(C), b=A.distanceTo(C), c=A.distanceTo(B), s=(a+b+c)/2, rin=Math.sqrt(s*(s-a)*(s-b)*(s-c))/s*0.92;
+  const col=new THREE.Mesh(new THREE.CylinderGeometry(rin*0.85,rin*0.85,0.07,24,1,true), cm(new THREE.MeshStandardMaterial({color:0x2a4a38, emissive:0x1a8a4a, emissiveIntensity:.8, side:THREE.DoubleSide})));
+  col.position.copy(cen).addScaledVector(n,0.035); col.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0), n); root.add(col);
+  info.cen = cen;
+}
+
+// ---------- noms (étiquettes qui suivent la rotation) ----------
+const inv = new THREE.Quaternion();
+const side = (sg, r, y) => { inv.copy(root.quaternion).invert(); const d=new THREE.Vector3(sg,0,0).applyQuaternion(inv); d.y=0; d.normalize(); return new THREE.Vector3(d.x*r, y, d.z*r); };
+const LBL = [
+  ['TAMBOUR qui tourne · 0,38 g', '#6fe0a0', ()=>side(-1, 4.4, 0.2), true],
+  ['2ᵉ roue : anneau d\'eau à l\'envers', '#7fa8ff', ()=>side(1, 4.8, -0.6), true],
+  ['pont du haut 2,13 m (étage posé)', '#9fc3e6', ()=>side(-1, 4.1, 2.9), true],
+  
+  ['BULLE CENTRALE : poste de commande + abri', '#dfe9f3', ()=>new THREE.Vector3(0,0.15,0), true, true],
+  ['eau = bouclier', '#7fa8ff', ()=>new THREE.Vector3(0,4.5,0), true],
+  ['réacteur fusion D-³He', '#ffb07a', ()=>new THREE.Vector3(0,-4.4,0), true],
+  ['bouclier d\'ombre', '#c7a0ff', ()=>side(1, 2.6, -3.15), true],
+  ['SOUTE (fret sur l\'axe, symétrique)', '#e0c48a', ()=>new THREE.Vector3(2.3*Math.sin(AZ_LO+Math.PI/2), -1.55, 2.3*Math.cos(AZ_LO+Math.PI/2)), true, true],
+  ['labo d\'analyse (boîte à gants)', '#9fd0ff', ()=>new THREE.Vector3(4.0*Math.sin(AZ_LO+0.75), -1.7, 4.0*Math.cos(AZ_LO+0.75)), true, true],
+  ['réservoirs', '#7fd6df', ()=>side(-1, 3.2, -3.9), true],
+  ['jet de plasma (150 km/s)', '#ff9a5a', ()=>new THREE.Vector3(0,-9.4,0), true],
+  ['⚠ fuite du 2ᵉ cusp', '#ffcc33', ()=>new THREE.Vector3(0,8.4,0), true],
+  ['radiateurs', '#c9d6e3', ()=>side(1, 11.2, -6.5), true],
+].map(([t,c,f,inM,clipped])=>{ const d=document.createElement('div'); d.className='lbl'; d.textContent=t; d.style.color=c; stage.appendChild(d); return {d, f, inM, clipped}; });
+for(const [t,ss,aa,hh] of [['couchettes (dans l\'axe)',2.0,2.3,1.0],['douche fermée',7.62,1.85,2.25],['table + chaises',10.2,1.55,1.05],['tapis (dans l\'axe)',14.62,1.6,1.45],['poste de quart',18.9,2.1,1.85],['SALLE MÉDICALE (gravité)',21.65,1.9,1.0],['isolement médical',5.0,2.3,1.0]]){
+  const d=document.createElement('div'); d.className='lbl'; d.textContent=t; d.style.color='#bfe8cf'; d.style.fontWeight='500'; stage.appendChild(d);
+  LBL.push({d, f:()=>ptDrum(ss,aa,hh), inM:'drum', clipped:true}); }
+for(const info of sasPair){ const d=document.createElement('div'); d.className='lbl'; d.textContent=info.c.y>0?'face-sas haute':'face-sas basse'; d.style.color='#6fe8a8'; stage.appendChild(d);
+  LBL.push({d, f:()=>info.cen.clone().multiplyScalar(1.12), inM:false, clipped:true}); }
+let lblOn = true; const tmp = new THREE.Vector3();
+function placeLabels(){
+  const w=stage.clientWidth, h=stage.clientHeight;
+  for(const L of LBL){
+    if(!lblOn){ L.d.style.display='none'; continue; }
+    tmp.copy(L.f()); (L.inM==='drum'?drum:(L.inM?M:root)).localToWorld(tmp);
+    const hide = (L.clipped && cutOn && tmp.z>0.02) || (pose && /jet|cusp/.test(L.d.textContent));
+    tmp.project(camera);
+    L.d.style.display = hide||tmp.z>1 ? 'none' : 'block';
+    L.d.style.left=((tmp.x+1)/2*w)+'px'; L.d.style.top=((1-tmp.y)/2*h)+'px';
+  }
+}
+
+// ---------- légende ----------
+const dot = (c,t) => `<div class="row"><span class="dot" style="background:${c}"></span><span class="t">${t}</span></div>`;
+document.getElementById('legend').innerHTML =
+  dot('#3f8f5a','TAMBOUR (tourne, 0,38 g) : ce qui a besoin de gravité — dormir, manger, se laver, sport, soins') +
+  dot('#2b4a66','le reste de l\'icosaèdre, FIXE et en apesanteur (≈ 234 m³ bruts) : poste de commande, labo, atelier, stock, sas') +
+  dot('#2f6fd6','anneau d\'eau = 2ᵉ ROUE qui tourne à l\'envers (3,6 tr/min) : annule l\'effet gyroscope + bouclier + réserve + tampon thermique 🔵') +
+  dot('#5fd0e0','BULLE CENTRALE fixe (idée de l\'auteur) = poste de commande + abri : le coin le mieux protégé, 2 couchettes dos au réacteur, accès direct par le moyeu') +
+  dot('#ff8a3d','réacteur · réservoirs de D autour = modérateur de neutrons, B₄C/LiH derrière = absorbeur') +
+  dot('#46d17a','2 faces-sas à ±1,87 m = sas + amarrage + cadre + soute') +
+  dot('#e0c48a','pont bas = SOUTE (fret sur l\'axe, entre réacteur et équipage = blindage au retour) + LABO d\'analyse à boîte à gants près du sas') +
+  dot('#8a6fd1','SALLE MÉDICALE dans le tambour (soigner est plus simple avec gravité) · cabine 3 = isolement médical') +
+  dot('#8a4a2e','bouton « Mode » : posé sur Mars — tambour arrêté, on vit debout dans le pont haut (2,13 m), 4 jambes, moteur coupé (fin sur propulseurs d\'appoint)') +
+  '<div class="v">Équipage de 2, par quarts — bouton « Scène » : l\'un dort, l\'autre veille au poste de quart / alerte éruption : les 2 attachés au poste de commande. ⛔ dose : drone tant que le réacteur ne fait pas ×3 à ×5,5.</div>';
+
+// ---------- interactions ----------
+function fitCamera(){ const v=camera.fov*Math.PI/180; const hh=2*Math.atan(Math.tan(v/2)*camera.aspect);
+  const need=1.45; const dz=Math.max(need/Math.sin(v/2), need/Math.sin(hh/2));
+  camera.position.set(0,0,dz*1.02); camera.lookAt(0,0,0); }
+let drag=false,px=0,py=0,autoR=true,spin=true;
+renderer.domElement.addEventListener('pointerdown',e=>{drag=true;autoR=false;px=e.clientX;py=e.clientY;});
+window.addEventListener('pointerup',()=>drag=false);
+window.addEventListener('pointermove',e=>{if(!drag)return;root.rotation.y+=(e.clientX-px)/180;root.rotation.x+=(e.clientY-py)/180;px=e.clientX;py=e.clientY;});
+renderer.domElement.addEventListener('wheel',e=>{e.preventDefault();camera.position.z=Math.max(1.1,Math.min(16,camera.position.z+e.deltaY*0.005));},{passive:false});
+document.getElementById('bCut').onclick=function(){ cutOn=!cutOn; this.classList.toggle('on',cutOn); this.textContent=cutOn?'Coque ouverte':'Coque fermée';
+  for(const m of clipMats){ m.clippingPlanes = cutOn?[CLIP]:[]; m.needsUpdate=true; } };
+document.getElementById('bSpin').onclick=function(){ spin=!spin; this.classList.toggle('on',spin); this.textContent=spin?'Tambour : tourne':'Tambour : arrêté'; };
+document.getElementById('bSide').onclick=function(){ autoR=false; root.rotation.set(0,0,0); };
+document.getElementById('bLbl').onclick=function(){ lblOn=!lblOn; this.classList.toggle('on',lblOn); };
+document.getElementById('bPose').onclick=function(){ pose=!pose; posé.visible=pose; jet.visible=jetCore.visible=!pose; cusps.forEach(l=>l.visible=!pose);
+  vie.visible=!pose && !alarme; vie.userData.dormeur.visible=!pose && !alarme; alerte.visible=!pose && alarme;
+  this.classList.toggle('on',pose); this.textContent = pose ? 'Mode : posé (Mars)' : 'Mode : croisière'; if(pose){ autoR=true; root.rotation.x=0.18; } };
+let alarme=false; document.getElementById('bScene').onclick=function(){ alarme=!alarme; changerScene(alarme); this.classList.toggle('on',alarme);
+  this.textContent = alarme ? 'Scène : alerte éruption' : 'Scène : vie à bord'; };
+document.getElementById('bLeg').onclick=function(){ const l=document.getElementById('legend'); const on=l.style.display==='none'; l.style.display=on?'block':'none'; this.classList.toggle('on',on); };
+if(window.innerWidth<900){ const l=document.getElementById('legend'); l.style.display='none'; document.getElementById('bLeg').classList.remove('on'); }
+function resize(){ const w=stage.clientWidth,h=stage.clientHeight; renderer.setSize(w,h); camera.aspect=w/h; camera.updateProjectionMatrix(); fitCamera(); }
+window.addEventListener('resize',resize);
+const clock = new THREE.Clock();
+(function loop(){ requestAnimationFrame(loop); const dt=Math.min(clock.getDelta(),0.1);
+  if(autoR) root.rotation.y+=0.0032;
+  if(spin && !pose){ drum.rotation.y += 1.005*dt; anneau.rotation.y -= 0.38*dt; }   // 2ᵉ roue en sens inverse : moments cinétiques opposés                 // vraie vitesse : 9,6 tr/min = 1 tour en 6,25 s
+  renderer.render(scene,camera); placeLabels(); })();
+resize();
+</script>
+</body>
+</html>

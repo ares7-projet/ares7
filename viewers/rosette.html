@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ARÈS-7 — 6 modules nord-dehors / sud-dedans</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html,body { height:100%; background:#060608; color:#d8d8d2; font-family:system-ui,-apple-system,sans-serif; overflow:hidden; }
+  #wrap { display:flex; flex-direction:column; height:100vh; }
+  #bar { display:flex; align-items:center; gap:8px; padding:10px 14px; border-bottom:1px solid #1d1d22; flex-wrap:wrap; }
+  #bar h1 { font-size:14px; font-weight:500; margin-right:6px; letter-spacing:.4px; }
+  #bar h1 span { color:#7a7a82; font-weight:400; font-size:11.5px; }
+  label { font-size:12px; color:#9a9aa2; }
+  #sep { width:220px; accent-color:#4a7aff; }
+  button { background:#141418; color:#cfcfca; border:1px solid #2a2a31; padding:6px 11px; border-radius:7px; font-size:12px; cursor:pointer; }
+  button.on { background:#2a2a33; border-color:#4a4a55; color:#fff; }
+  #stage { position:relative; flex:1; min-height:0; }
+  canvas { display:block; }
+  .ov { position:absolute; pointer-events:none; }
+  #info { left:14px; top:14px; background:rgba(10,10,14,.82); border:1px solid #22222a; border-radius:9px; padding:10px 12px; max-width:320px; font-size:11.5px; line-height:1.5; }
+  #info .big { font-size:17px; font-weight:600; color:#bfe0ff; }
+  #info .t { color:#9a9aa2; } #info .ok { color:#9be6a0; } #info .warn { color:#ffae6a; }
+  #hint { right:14px; bottom:12px; color:#5a5a62; font-size:11.5px; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div id="bar">
+    <h1>ARÈS-7 <span>— 6 modules · nord ↑ dehors / sud ↓ dedans</span></h1>
+    <button id="bOcta" class="on">Octaèdre (90°)</button>
+    <button id="bHex">Hexagone plan (60°)</button>
+    <label>écart <input id="sep" type="range" min="0.58" max="1.4" step="0.005" value="0.75"></label>
+  </div>
+  <div id="stage">
+    <div id="info" class="ov"></div>
+    <div id="hint" class="ov"><span style="color:#88ccff">●</span> nord (direction, dehors) · <span style="color:#ff8a5a">●</span> sud (réacteur, dedans)</div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+const stage=document.getElementById('stage');
+const scene=new THREE.Scene();
+const camera=new THREE.PerspectiveCamera(50,1,0.1,100);
+const renderer=new THREE.WebGLRenderer({antialias:true});
+renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
+stage.appendChild(renderer.domElement);
+scene.add(new THREE.AmbientLight(0x44444f,1.0));
+const keyL=new THREE.DirectionalLight(0xffffff,0.85); keyL.position.set(4,6,5); scene.add(keyL);
+const rim=new THREE.DirectionalLight(0x5577ff,0.35); rim.position.set(-5,-3,-4); scene.add(rim);
+const root=new THREE.Group(); root.rotation.x=0.5; scene.add(root);
+
+const t=(1+Math.sqrt(5))/2;
+const norm=v=>{const l=Math.hypot(v[0],v[1],v[2]);return[v[0]/l,v[1]/l,v[2]/l];};
+function buildF2(){
+  const ico=[[-1,t,0],[1,t,0],[-1,-t,0],[1,-t,0],[0,-1,t],[0,1,t],[0,-1,-t],[0,1,-t],[t,0,-1],[t,0,1],[-t,0,-1],[-t,0,1]].map(norm);
+  const F=[[0,11,5],[0,5,1],[0,1,7],[0,7,10],[0,10,11],[1,5,9],[5,11,4],[11,10,2],[10,7,6],[7,1,8],[3,9,4],[3,4,2],[3,2,6],[3,6,8],[3,8,9],[4,9,5],[2,4,11],[6,2,10],[8,6,7],[9,8,1]];
+  const verts=ico.slice(); const cache={};
+  const mid=(a,b)=>{const k=a<b?a+'_'+b:b+'_'+a;if(cache[k]!=null)return cache[k];const va=verts[a],vb=verts[b];const m=norm([(va[0]+vb[0])/2,(va[1]+vb[1])/2,(va[2]+vb[2])/2]);const i=verts.length;verts.push(m);cache[k]=i;return i;};
+  const eset={}; const ae=(a,b)=>{const k=a<b?a+'_'+b:b+'_'+a;eset[k]=[a,b];};
+  const faces=[];
+  for(const [a,b,c] of F){const ab=mid(a,b),bc=mid(b,c),ca=mid(c,a);
+    faces.push([a,ab,ca],[b,bc,ab],[c,ca,bc],[ab,bc,ca]);
+    ae(a,ab);ae(ab,b);ae(b,bc);ae(bc,c);ae(c,ca);ae(ca,a);ae(ab,bc);ae(bc,ca);ae(ca,ab);}
+  return {verts,edges:Object.values(eset),faces,origF:F};
+}
+const G=buildF2();
+const R=0.5;
+// pôles sur faces
+const f0=G.origF[0];
+const c0=new THREE.Vector3(...G.verts[f0[0]]).add(new THREE.Vector3(...G.verts[f0[1]])).add(new THREE.Vector3(...G.verts[f0[2]])).normalize();
+const Q=new THREE.Quaternion().setFromUnitVectors(c0,new THREE.Vector3(0,1,0));
+const baseV=G.verts.map(v=>new THREE.Vector3(v[0],v[1],v[2]).applyQuaternion(Q).multiplyScalar(R));
+const up=new THREE.Vector3(0,1,0);
+
+const OCTA=[[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]].map(d=>new THREE.Vector3(...d));
+const HEX=[0,1,2,3,4,5].map(i=>{const a=i/6*2*Math.PI;return new THREE.Vector3(Math.cos(a),0,Math.sin(a));});
+
+let mode='octa', sep=0.75;
+function build(){
+  while(root.children.length) root.remove(root.children[0]);
+  const dirs = mode==='octa'?OCTA:HEX;
+  const tmp=new THREE.Vector3(), q=new THREE.Quaternion(), s=new THREE.Vector3(1,1,1);
+  const fp=[],ep=[]; const Ms=[];
+  for(const d of dirs){ q.setFromUnitVectors(up,d); const M=new THREE.Matrix4().compose(d.clone().multiplyScalar(sep),q,s); Ms.push(M);
+    for(const f of G.faces) for(const idx of f){tmp.copy(baseV[idx]).applyMatrix4(M);fp.push(tmp.x,tmp.y,tmp.z);}
+    for(const [a,b] of G.edges){tmp.copy(baseV[a]).applyMatrix4(M);ep.push(tmp.x,tmp.y,tmp.z);tmp.copy(baseV[b]).applyMatrix4(M);ep.push(tmp.x,tmp.y,tmp.z);}
+  }
+  const fg=new THREE.BufferGeometry();fg.setAttribute('position',new THREE.Float32BufferAttribute(fp,3));fg.computeVertexNormals();
+  root.add(new THREE.Mesh(fg,new THREE.MeshStandardMaterial({color:0x0d0d11,roughness:1,metalness:0,side:THREE.DoubleSide,flatShading:true})));
+  const eg=new THREE.BufferGeometry();eg.setAttribute('position',new THREE.Float32BufferAttribute(ep,3));
+  root.add(new THREE.LineSegments(eg,new THREE.LineBasicMaterial({color:0xffffff,transparent:true,opacity:0.85,blending:THREE.AdditiveBlending})));
+  // pôles
+  const dot=(v,c)=>{const m=new THREE.Mesh(new THREE.SphereGeometry(0.06*R,8,8),new THREE.MeshBasicMaterial({color:c}));m.position.copy(v);root.add(m);};
+  for(const M of Ms){ dot(new THREE.Vector3(0,R,0).applyMatrix4(M),0x88ccff); dot(new THREE.Vector3(0,-R,0).applyMatrix4(M),0xff8a5a); }
+  // liaisons entre voisins
+  const ctr=dirs.map(d=>d.clone().multiplyScalar(sep));
+  const upv=new THREE.Vector3(0,1,0),qq=new THREE.Quaternion(),pp=new THREE.Vector3(),dd=new THREE.Vector3();
+  for(let i=0;i<ctr.length;i++)for(let j=i+1;j<ctr.length;j++){
+    const L=ctr[i].distanceTo(ctr[j]); if(L>sep*1.7) continue;
+    dd.copy(ctr[j]).sub(ctr[i]); pp.copy(ctr[i]).add(ctr[j]).multiplyScalar(0.5); qq.setFromUnitVectors(upv,dd.clone().normalize());
+    const cyl=new THREE.Mesh(new THREE.CylinderGeometry(0.05*R,0.05*R,Math.max(0.01,L-2*R*0.6),10,1,true),
+      new THREE.MeshStandardMaterial({color:0x35e0ff,emissive:0x0a3b46,emissiveIntensity:.6,roughness:.5,side:THREE.DoubleSide}));
+    cyl.position.copy(pp); cyl.quaternion.copy(qq); root.add(cyl);
+  }
+  // marqueur cavité centrale
+  root.add(new THREE.Mesh(new THREE.SphereGeometry(Math.max(0.02,sep-R)*0.9,12,12),new THREE.MeshBasicMaterial({color:0x5a2a10,transparent:true,opacity:.35})));
+
+  // diagnostic : écart entre voisins
+  const ang = mode==='octa'?90:60;
+  const dc = sep*Math.sqrt(2*(1-Math.cos(ang*Math.PI/180))); // distance centre-centre voisins
+  const gap = dc-1; // approx sphères R=0.5
+  const cav = sep-R; // rayon de la cavité centrale (sud vers le centre)
+  fitR=sep+R+0.3; fitCamera(fitR);
+  let verdict, vc;
+  if(Math.abs(gap)<0.02){verdict='les voisins se touchent (tangents)';vc='ok';}
+  else if(gap<0){verdict='coques interpénétrées (trop serré)';vc='warn';}
+  else {verdict='il reste un vide entre voisins';vc='warn';}
+  document.getElementById('info').innerHTML=
+   `<div class="big">6 modules · ${mode==='octa'?'octaèdre':'hexagone'}</div>
+    <div class="t" style="margin-top:6px">nord ↑ dehors, sud ↓ dedans (réacteurs convergent au centre)</div>
+    <div class="${vc}" style="margin-top:6px">écart voisins ≈ ${(gap*12).toFixed(1)} m → ${verdict}</div>
+    <div class="warn" style="margin-top:4px">cavité centrale ~${(cav*2*12).toFixed(0)} m : les 6 réacteurs crachent dedans → poussée nette ≈ 0</div>
+    <div class="t" style="margin-top:4px">contacts entre voisins = points/arêtes (coques tournées l'une vs l'autre), pas des faces → pas de scellement parfait</div>`;
+}
+
+let fitR=2;
+function fitCamera(needed){const v=camera.fov*Math.PI/180;const h=2*Math.atan(Math.tan(v/2)*camera.aspect);const dz=Math.max(needed/Math.sin(v/2),needed/Math.sin(h/2));camera.position.set(0,0,dz*1.12);camera.lookAt(0,0,0);}
+let drag=false,px=0,py=0,autoR=true;
+renderer.domElement.addEventListener('pointerdown',e=>{drag=true;autoR=false;px=e.clientX;py=e.clientY;});
+window.addEventListener('pointerup',()=>drag=false);
+window.addEventListener('pointermove',e=>{if(!drag)return;root.rotation.y+=(e.clientX-px)/180;root.rotation.x+=(e.clientY-py)/180;px=e.clientX;py=e.clientY;});
+renderer.domElement.addEventListener('wheel',e=>{e.preventDefault();camera.position.z=Math.max(fitR*0.5,Math.min(fitR*4,camera.position.z+e.deltaY*0.004*fitR));},{passive:false});
+document.getElementById('bOcta').onclick=function(){mode='octa';this.classList.add('on');document.getElementById('bHex').classList.remove('on');build();};
+document.getElementById('bHex').onclick=function(){mode='hex';this.classList.add('on');document.getElementById('bOcta').classList.remove('on');build();};
+document.getElementById('sep').addEventListener('input',e=>{sep=+e.target.value;build();});
+function resize(){const w=stage.clientWidth,h=stage.clientHeight;renderer.setSize(w,h);camera.aspect=w/h;camera.updateProjectionMatrix();fitCamera(fitR);}
+window.addEventListener('resize',resize);
+function loop(){requestAnimationFrame(loop);if(autoR)root.rotation.y+=0.0035;renderer.render(scene,camera);}
+resize(); build(); loop();
+</script>
+</body>
+</html>

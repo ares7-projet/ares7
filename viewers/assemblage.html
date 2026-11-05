@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ARÈS-7 — assemblage pas-à-pas</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html,body { height:100%; background:#060608; color:#d8d8d2; font-family:system-ui,-apple-system,sans-serif; overflow:hidden; }
+  #wrap { display:flex; flex-direction:column; height:100vh; }
+  #bar { display:flex; align-items:center; gap:6px; padding:9px 14px; border-bottom:1px solid #1d1d22; flex-wrap:wrap; }
+  #bar h1 { font-size:13px; font-weight:500; margin-right:6px; letter-spacing:.4px; width:100%; }
+  #bar h1 span { color:#7a7a82; font-weight:400; font-size:11.5px; }
+  button { background:#141418; color:#cfcfca; border:1px solid #2a2a31; padding:6px 9px; border-radius:7px; font-size:12px; cursor:pointer; transition:.12s; }
+  button:hover { background:#1d1d23; }
+  button.minus { color:#ff9a8a; } button.plus { color:#8ad0ff; }
+  #val { font-family:ui-monospace,monospace; font-size:16px; font-weight:600; color:#bfe0ff; min-width:78px; text-align:center; }
+  #slider { flex:1 1 100%; margin-top:4px; accent-color:#4a7aff; }
+  #stage { position:relative; flex:1; min-height:0; }
+  canvas { display:block; }
+  .ov { position:absolute; pointer-events:none; }
+  #info { left:14px; top:14px; background:rgba(10,10,14,.82); border:1px solid #22222a; border-radius:9px; padding:10px 12px; max-width:330px; font-size:11.5px; line-height:1.5; }
+  #info .big { font-size:20px; font-weight:600; color:#bfe0ff; }
+  #info .t { color:#9a9aa2; } #info .ok { color:#9be6a0; } #info .warn { color:#ffae6a; }
+  #info .g { color:#6ee68a; } #info .o { color:#ff9a5a; }
+  #hint { right:14px; bottom:12px; color:#5a5a62; font-size:11.5px; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div id="bar">
+    <h1>ARÈS-7 <span>— assemblage par faces · pas réglable</span></h1>
+    <button class="minus" data-d="-10000">−10k</button>
+    <button class="minus" data-d="-1000">−1000</button>
+    <button class="minus" data-d="-100">−100</button>
+    <button class="minus" data-d="-10">−10</button>
+    <button class="minus" data-d="-1">−1</button>
+    <span id="val">1</span>
+    <button class="plus" data-d="1">+1</button>
+    <button class="plus" data-d="10">+10</button>
+    <button class="plus" data-d="100">+100</button>
+    <button class="plus" data-d="1000">+1000</button>
+    <button class="plus" data-d="10000">+10k</button>
+    <input id="slider" type="range" min="1" max="100000" step="1" value="1">
+  </div>
+  <div id="stage">
+    <div id="info" class="ov"></div>
+    <div id="hint" class="ov"><span style="color:#88ccff">●</span>↑ direction · <span style="color:#ff8a5a">●</span>↓ réacteur</div>
+  </div>
+</div>
+
+<script src="lib/three.min.js"></script>
+<script>
+const stage=document.getElementById('stage');
+const scene=new THREE.Scene();
+const camera=new THREE.PerspectiveCamera(50,1,0.1,8000);
+const renderer=new THREE.WebGLRenderer({antialias:true});
+renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
+stage.appendChild(renderer.domElement);
+scene.add(new THREE.AmbientLight(0x44444f,1.0));
+const keyL=new THREE.DirectionalLight(0xffffff,0.85); keyL.position.set(4,6,5); scene.add(keyL);
+const rim=new THREE.DirectionalLight(0x5577ff,0.35); rim.position.set(-5,-3,-4); scene.add(rim);
+const root=new THREE.Group(); root.rotation.x=0.35; scene.add(root);
+
+const t=(1+Math.sqrt(5))/2;
+const norm=v=>{const l=Math.hypot(v[0],v[1],v[2]);return[v[0]/l,v[1]/l,v[2]/l];};
+function buildF2(){
+  const ico=[[-1,t,0],[1,t,0],[-1,-t,0],[1,-t,0],[0,-1,t],[0,1,t],[0,-1,-t],[0,1,-t],[t,0,-1],[t,0,1],[-t,0,-1],[-t,0,1]].map(norm);
+  const F=[[0,11,5],[0,5,1],[0,1,7],[0,7,10],[0,10,11],[1,5,9],[5,11,4],[11,10,2],[10,7,6],[7,1,8],[3,9,4],[3,4,2],[3,2,6],[3,6,8],[3,8,9],[4,9,5],[2,4,11],[6,2,10],[8,6,7],[9,8,1]];
+  const verts=ico.slice(); const cache={};
+  const mid=(a,b)=>{const k=a<b?a+'_'+b:b+'_'+a;if(cache[k]!=null)return cache[k];const va=verts[a],vb=verts[b];const m=norm([(va[0]+vb[0])/2,(va[1]+vb[1])/2,(va[2]+vb[2])/2]);const i=verts.length;verts.push(m);cache[k]=i;return i;};
+  const eset={}; const ae=(a,b)=>{const k=a<b?a+'_'+b:b+'_'+a;eset[k]=[a,b];};
+  const faces=[];
+  for(const [a,b,c] of F){const ab=mid(a,b),bc=mid(b,c),ca=mid(c,a);
+    faces.push([a,ab,ca],[b,bc,ab],[c,ca,bc],[ab,bc,ca]);
+    ae(a,ab);ae(ab,b);ae(b,bc);ae(bc,c);ae(c,ca);ae(ca,a);ae(ab,bc);ae(bc,ca);ae(ca,ab);}
+  return {verts,edges:Object.values(eset),faces};
+}
+const G=buildF2();
+// ---- orientation FACE-POLE (audit croisé) : +Y = centroide de face (axe ordre 3), pas milieu d arete ----
+{ const f=G.faces[3];
+  const c=new THREE.Vector3((G.verts[f[0]][0]+G.verts[f[1]][0]+G.verts[f[2]][0])/3,(G.verts[f[0]][1]+G.verts[f[1]][1]+G.verts[f[2]][1])/3,(G.verts[f[0]][2]+G.verts[f[1]][2]+G.verts[f[2]][2])/3).normalize();
+  const q=new THREE.Quaternion().setFromUnitVectors(c,new THREE.Vector3(0,1,0));
+  G.verts=G.verts.map(v=>{const p=new THREE.Vector3(v[0],v[1],v[2]).applyQuaternion(q);return [p.x,p.y,p.z];}); }
+
+const R=0.5, MINSEP=0.85, POLECAP=0.72;
+const baseV=G.verts.map(v=>new THREE.Vector3(v[0]*R,v[1]*R,v[2]*R));
+const dockable=G.faces.map(f=>{const c=baseV[f[0]].clone().add(baseV[f[1]]).add(baseV[f[2]]).multiplyScalar(1/3);return Math.abs(c.normalize().y)<=POLECAP;});
+function reflectMatrix(n,d){const x=n.x,y=n.y,z=n.z;const M=new THREE.Matrix4();
+  M.set(1-2*x*x,-2*x*y,-2*x*z,2*d*x, -2*x*y,1-2*y*y,-2*y*z,2*d*y, -2*x*z,-2*y*z,1-2*z*z,2*d*z, 0,0,0,1);return M;}
+
+function grow(target){
+  const cell=MINSEP, grid=new Map();
+  const gkey=c=>Math.floor(c.x/cell)+','+Math.floor(c.y/cell)+','+Math.floor(c.z/cell);
+  const occ=cc=>{const kx=Math.floor(cc.x/cell),ky=Math.floor(cc.y/cell),kz=Math.floor(cc.z/cell);
+    for(let dx=-1;dx<=1;dx++)for(let dy=-1;dy<=1;dy++)for(let dz=-1;dz<=1;dz++){
+      const a=grid.get((kx+dx)+','+(ky+dy)+','+(kz+dz)); if(a) for(const c of a) if(cc.distanceTo(c)<MINSEP) return true; } return false;};
+  const addc=cc=>{const k=gkey(cc); let a=grid.get(k); if(!a){a=[];grid.set(k,a);} a.push(cc);};
+  const mods=[new THREE.Matrix4()]; const centers=[new THREE.Vector3()]; addc(centers[0]); const queue=[0];
+  const wc=new THREE.Vector3(),pole=new THREE.Vector3(),p0=new THREE.Vector3(),p1=new THREE.Vector3(),p2=new THREE.Vector3(),cen=new THREE.Vector3(),fd=new THREE.Vector3(),nrm=new THREE.Vector3(),e1=new THREE.Vector3(),e2=new THREE.Vector3();
+  while(queue.length&&mods.length<target){
+    const M=mods[queue.shift()]; wc.setFromMatrixPosition(M); pole.set(0,1,0).transformDirection(M).normalize();
+    for(let fi=0;fi<G.faces.length;fi++){const f=G.faces[fi];
+      p0.copy(baseV[f[0]]).applyMatrix4(M);p1.copy(baseV[f[1]]).applyMatrix4(M);p2.copy(baseV[f[2]]).applyMatrix4(M);
+      cen.copy(p0).add(p1).add(p2).multiplyScalar(1/3); fd.copy(cen).sub(wc).normalize();
+      if(Math.abs(fd.dot(pole))>POLECAP) continue;
+      e1.copy(p1).sub(p0);e2.copy(p2).sub(p0);nrm.copy(e1).cross(e2).normalize(); if(nrm.dot(fd)<0)nrm.negate();
+      const d=p0.dot(nrm); const cc=wc.clone().addScaledVector(nrm,-2*(wc.dot(nrm)-d));
+      if(occ(cc)) continue;
+      mods.push(new THREE.Matrix4().multiplyMatrices(reflectMatrix(nrm,d),M)); centers.push(cc); addc(cc); queue.push(mods.length-1);
+      if(mods.length>=target) break;
+    }
+  }
+  return {mods,centers};
+}
+
+function singleModule(){
+  const fpD=[],fpP=[];
+  for(let fi=0;fi<G.faces.length;fi++){const f=G.faces[fi];const dst=dockable[fi]?fpD:fpP;
+    for(const idx of f){const v=baseV[idx];dst.push(v.x,v.y,v.z);}}
+  const mk=(arr,col,emi)=>{const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(arr,3));g.computeVertexNormals();root.add(new THREE.Mesh(g,new THREE.MeshStandardMaterial({color:col,emissive:emi,emissiveIntensity:.55,roughness:1,metalness:0,side:THREE.DoubleSide,flatShading:true})));};
+  mk(fpD,0x123a1e,0x1f7a38); mk(fpP,0x3a1810,0x8a3010);
+  const ep=[];for(const [a,b] of G.edges){const va=baseV[a],vb=baseV[b];ep.push(va.x,va.y,va.z,vb.x,vb.y,vb.z);}
+  const eg=new THREE.BufferGeometry();eg.setAttribute('position',new THREE.Float32BufferAttribute(ep,3));
+  root.add(new THREE.LineSegments(eg,new THREE.LineBasicMaterial({color:0xffffff,transparent:true,opacity:0.85,blending:THREE.AdditiveBlending})));
+  const dot=(y,c)=>{const s=new THREE.Mesh(new THREE.SphereGeometry(0.08*R,10,10),new THREE.MeshBasicMaterial({color:c}));s.position.set(0,y,0);root.add(s);};
+  dot(R,0x88ccff);dot(-R,0xff8a5a);
+  fitR=1.5; fitCamera(fitR);
+  document.getElementById('info').innerHTML=
+   `<div class="big">1 module</div>
+    <div style="margin-top:6px"><span class="g">■</span> 56 faces dockables &nbsp; <span class="o">■</span> 24 calottes polaires libres</div>`;
+}
+
+function build(target){
+  while(root.children.length) root.remove(root.children[0]);
+  if(target<=1){ singleModule(); return; }
+  const {mods,centers}=grow(target);
+  const tmp=new THREE.Vector3(), m4=new THREE.Matrix4();
+  if(mods.length<=120){
+    const fp=[],ep=[];
+    for(const M of mods){
+      for(const f of G.faces) for(const idx of f){tmp.copy(baseV[idx]).applyMatrix4(M);fp.push(tmp.x,tmp.y,tmp.z);}
+      for(const [a,b] of G.edges){tmp.copy(baseV[a]).applyMatrix4(M);ep.push(tmp.x,tmp.y,tmp.z);tmp.copy(baseV[b]).applyMatrix4(M);ep.push(tmp.x,tmp.y,tmp.z);}
+    }
+    const fg=new THREE.BufferGeometry();fg.setAttribute('position',new THREE.Float32BufferAttribute(fp,3));fg.computeVertexNormals();
+    root.add(new THREE.Mesh(fg,new THREE.MeshStandardMaterial({color:0x0d0d11,roughness:1,metalness:0,side:THREE.DoubleSide,flatShading:true})));
+    const eg=new THREE.BufferGeometry();eg.setAttribute('position',new THREE.Float32BufferAttribute(ep,3));
+    root.add(new THREE.LineSegments(eg,new THREE.LineBasicMaterial({color:0xffffff,transparent:true,opacity:0.8,blending:THREE.AdditiveBlending})));
+  } else if(mods.length<=5000){
+    const inst=new THREE.InstancedMesh(new THREE.IcosahedronGeometry(R,1),new THREE.MeshStandardMaterial({color:0x12141a,roughness:.9,metalness:.05,flatShading:true}),mods.length);
+    mods.forEach((M,i)=>inst.setMatrixAt(i,M)); root.add(inst);
+    const ep=[];
+    for(const M of mods){ for(const [a,b] of G.edges){tmp.copy(baseV[a]).applyMatrix4(M);ep.push(tmp.x,tmp.y,tmp.z);tmp.copy(baseV[b]).applyMatrix4(M);ep.push(tmp.x,tmp.y,tmp.z);} }
+    const eg=new THREE.BufferGeometry();eg.setAttribute('position',new THREE.Float32BufferAttribute(ep,3));
+    root.add(new THREE.LineSegments(eg,new THREE.LineBasicMaterial({color:0xffffff,transparent:true,opacity:0.55,blending:THREE.AdditiveBlending})));
+  } else {
+    const pp=[]; for(const c of centers) pp.push(c.x,c.y,c.z);
+    const pg=new THREE.BufferGeometry(); pg.setAttribute('position',new THREE.Float32BufferAttribute(pp,3));
+    root.add(new THREE.Points(pg,new THREE.PointsMaterial({color:0xbfe0ff,size:R*0.9,sizeAttenuation:true,transparent:true,opacity:0.9})));
+  }
+  if(mods.length>1 && mods.length<=5000){
+    const top=new THREE.InstancedMesh(new THREE.SphereGeometry(mods.length>120?0.09*R:0.07*R,6,6),new THREE.MeshBasicMaterial({color:0x88ccff}),mods.length);
+    const bot=new THREE.InstancedMesh(new THREE.SphereGeometry(mods.length>120?0.09*R:0.07*R,6,6),new THREE.MeshBasicMaterial({color:0xff8a5a}),mods.length);
+    const vt=new THREE.Vector3(),vb=new THREE.Vector3();
+    mods.forEach((M,i)=>{vt.set(0,R,0).applyMatrix4(M);m4.makeTranslation(vt.x,vt.y,vt.z);top.setMatrixAt(i,m4);vb.set(0,-R,0).applyMatrix4(M);m4.makeTranslation(vb.x,vb.y,vb.z);bot.setMatrixAt(i,m4);});
+    root.add(top);root.add(bot);
+  }
+  let maxr=0; for(const c of centers){if(c.length()>maxr)maxr=c.length();}
+  fitR=maxr+1.0; fitCamera(fitR);
+  document.getElementById('info').innerHTML=
+   `<div class="big">${mods.length.toLocaleString('fr')} modules</div>
+    <div class="ok" style="margin-top:6px">assemblés par faces réelles (corail)</div>
+    <div class="warn" style="margin-top:4px">croissance poreuse · pôles non parallèles</div>
+    <div class="t" style="margin-top:4px">~${Math.round((2*maxr+1)*12).toLocaleString('fr')} m · ~${(mods.length*150).toLocaleString('fr')} t${mods.length>5000?' · nuage de points':''}</div>`;
+}
+
+let fitR=4;
+function fitCamera(needed){const v=camera.fov*Math.PI/180;const h=2*Math.atan(Math.tan(v/2)*camera.aspect);const dz=Math.max(needed/Math.sin(v/2),needed/Math.sin(h/2));camera.position.set(0,0,dz*1.12);camera.lookAt(0,0,0);}
+let drag=false,px=0,py=0,autoR=true;
+renderer.domElement.addEventListener('pointerdown',e=>{drag=true;autoR=false;px=e.clientX;py=e.clientY;});
+window.addEventListener('pointerup',()=>drag=false);
+window.addEventListener('pointermove',e=>{if(!drag)return;root.rotation.y+=(e.clientX-px)/180;root.rotation.x+=(e.clientY-py)/180;px=e.clientX;py=e.clientY;});
+renderer.domElement.addEventListener('wheel',e=>{e.preventDefault();camera.position.z=Math.max(fitR*0.4,Math.min(fitR*8,camera.position.z+e.deltaY*0.004*fitR));},{passive:false});
+
+// ---- contrôle pas-à-pas ----
+let value=1, timer=null;
+const valEl=document.getElementById('val'), slider=document.getElementById('slider');
+function schedule(){ if(timer)clearTimeout(timer); const d=value>3000?160:(value>300?40:0); timer=setTimeout(()=>build(value),d); }
+function setVal(v){ value=Math.max(1,Math.min(100000,Math.round(v))); valEl.textContent=value.toLocaleString('fr'); slider.value=value; schedule(); }
+document.querySelectorAll('#bar button[data-d]').forEach(b=>b.onclick=()=>setVal(value+(+b.dataset.d)));
+slider.addEventListener('input',()=>setVal(+slider.value));
+
+function resize(){const w=stage.clientWidth,h=stage.clientHeight;renderer.setSize(w,h);camera.aspect=w/h;camera.updateProjectionMatrix();fitCamera(fitR);}
+window.addEventListener('resize',resize);
+function loop(){requestAnimationFrame(loop);if(autoR)root.rotation.y+=0.0028;renderer.render(scene,camera);}
+resize(); build(1); loop();
+</script>
+</body>
+</html>

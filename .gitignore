@@ -1,0 +1,5 @@
+*.bak*
+.netlify/
+node_modules/
+*.mp4
+Thumbs.db

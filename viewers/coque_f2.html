@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ARÈS-7 — visualiseur géodésique f2</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html,body { height:100%; background:#060608; color:#d8d8d2; font-family:system-ui,-apple-system,sans-serif; overflow:hidden; }
+  #wrap { display:flex; flex-direction:column; height:100vh; }
+  #bar { display:flex; align-items:center; gap:8px; padding:10px 14px; border-bottom:1px solid #1d1d22; flex-wrap:wrap; }
+  #bar h1 { font-size:14px; font-weight:500; margin-right:6px; letter-spacing:.4px; }
+  #bar h1 span { color:#7a7a82; font-weight:400; font-size:12px; }
+  button { background:#141418; color:#cfcfca; border:1px solid #2a2a31; padding:6px 12px; border-radius:7px; font-size:12px; cursor:pointer; transition:.15s; }
+  button:hover { background:#1d1d23; }
+  button.on { background:#2a2a33; border-color:#4a4a55; color:#fff; }
+  #stage { position:relative; flex:1; min-height:0; }
+  canvas { display:block; }
+  .ov { position:absolute; pointer-events:none; }
+  #legend { left:14px; bottom:14px; background:rgba(10,10,14,.78); border:1px solid #22222a; border-radius:9px; padding:10px 12px; max-width:290px; font-size:11.5px; line-height:1.5; }
+  #legend .row { display:flex; align-items:center; gap:8px; margin:3px 0; }
+  #legend .sw { width:18px; height:3px; border-radius:2px; flex:none; }
+  #legend .dot { width:9px; height:9px; border-radius:50%; flex:none; }
+  #legend .t { color:#9a9aa2; }
+  #hint { right:14px; bottom:14px; color:#5a5a62; font-size:11.5px; }
+  .sidelab { top:10px; font-size:12.5px; font-weight:500; color:#e8e8e2; text-align:center; transform:translateX(-50%); }
+  .sidesub { display:block; font-weight:400; font-size:10.5px; color:#7a7a82; margin-top:2px; }
+  .hidden { display:none !important; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div id="bar">
+    <h1>ARÈS-7 <span>— coque géodésique f2 · Ø12 m · 42/120/80</span></h1>
+    <button id="bExt" class="on">Extérieur</button>
+    <button id="bAll">Tout lumineux</button>
+    <button id="bTr">Transparent — 2 retours</button>
+  </div>
+  <div id="stage">
+    <div id="labL" class="ov sidelab hidden">Retour central<span class="sidesub">conduit axial — préserve le 60/60</span></div>
+    <div id="labR" class="ov sidelab hidden">Retour arêtes internes<span class="sidesub">60 aller / 60 retour</span></div>
+    <div id="legend" class="ov"></div>
+    <div id="hint" class="ov">glisser pour tourner · molette pour zoomer</div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+const stage = document.getElementById('stage');
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 100);
+const renderer = new THREE.WebGLRenderer({ antialias:true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
+stage.appendChild(renderer.domElement);
+
+scene.add(new THREE.AmbientLight(0x3a3a44, 1.0));
+const key = new THREE.DirectionalLight(0xffffff, 0.85); key.position.set(4,6,5); scene.add(key);
+const rim = new THREE.DirectionalLight(0x5577ff, 0.35); rim.position.set(-5,-3,-4); scene.add(rim);
+
+const root = new THREE.Group();
+root.rotation.x = 0.35;
+scene.add(root);
+
+// ---------- geodesic frequency-2 icosahedron (unit radius) ----------
+function norm(v){ const l=Math.hypot(v[0],v[1],v[2]); return [v[0]/l,v[1]/l,v[2]/l]; }
+function buildF2(){
+  const t=(1+Math.sqrt(5))/2;
+  const ico=[[-1,t,0],[1,t,0],[-1,-t,0],[1,-t,0],[0,-1,t],[0,1,t],[0,-1,-t],[0,1,-t],[t,0,-1],[t,0,1],[-t,0,-1],[-t,0,1]].map(norm);
+  const F=[[0,11,5],[0,5,1],[0,1,7],[0,7,10],[0,10,11],[1,5,9],[5,11,4],[11,10,2],[10,7,6],[7,1,8],[3,9,4],[3,4,2],[3,2,6],[3,6,8],[3,8,9],[4,9,5],[2,4,11],[6,2,10],[8,6,7],[9,8,1]];
+  const verts=ico.slice(); const cache={};
+  const mid=(a,b)=>{ const k=a<b?a+'_'+b:b+'_'+a; if(cache[k]!=null)return cache[k]; const va=verts[a],vb=verts[b]; const m=norm([(va[0]+vb[0])/2,(va[1]+vb[1])/2,(va[2]+vb[2])/2]); const i=verts.length; verts.push(m); cache[k]=i; return i; };
+  const eset={}; const ae=(a,b)=>{ const k=a<b?a+'_'+b:b+'_'+a; eset[k]=[a,b]; };
+  const faces=[];
+  for(const [a,b,c] of F){ const ab=mid(a,b),bc=mid(b,c),ca=mid(c,a);
+    faces.push([a,ab,ca],[b,bc,ab],[c,ca,bc],[ab,bc,ca]);
+    ae(a,ab);ae(ab,b);ae(b,bc);ae(bc,c);ae(c,ca);ae(ca,a);ae(ab,bc);ae(bc,ca);ae(ca,ab); }
+  return { verts, edges:Object.values(eset), faces, orig:12 };
+}
+const G = buildF2();
+const isOrig = i => i < G.orig;
+const radialE   = G.edges.filter(([a,b]) => isOrig(a) !== isOrig(b));   // 60
+const interiorE = G.edges.filter(([a,b]) => !isOrig(a) && !isOrig(b));  // 60
+
+function lineSeg(edges, r, color, opacity, additive){
+  const pos=[];
+  for(const [a,b] of edges){ const va=G.verts[a],vb=G.verts[b];
+    pos.push(va[0]*r,va[1]*r,va[2]*r, vb[0]*r,vb[1]*r,vb[2]*r); }
+  const g=new THREE.BufferGeometry();
+  g.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));
+  const m=new THREE.LineBasicMaterial({ color, transparent:true, opacity, blending: additive?THREE.AdditiveBlending:THREE.NormalBlending });
+  return new THREE.LineSegments(g,m);
+}
+function faceMesh(r, color, opacity){
+  const pos=[];
+  for(const f of G.faces) for(const idx of f){ const v=G.verts[idx]; pos.push(v[0]*r,v[1]*r,v[2]*r); }
+  const g=new THREE.BufferGeometry();
+  g.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));
+  g.computeVertexNormals();
+  const m=new THREE.MeshStandardMaterial({ color, roughness:1, metalness:0, transparent:opacity<1, opacity, side:THREE.DoubleSide, flatShading:true });
+  return new THREE.Mesh(g,m);
+}
+function phiNodes(r, color, size){
+  const grp=new THREE.Group();
+  for(let i=0;i<G.orig;i++){ const v=G.verts[i];
+    const s=new THREE.Mesh(new THREE.SphereGeometry(size,12,12), new THREE.MeshBasicMaterial({color}));
+    s.position.set(v[0]*r,v[1]*r,v[2]*r); grp.add(s); }
+  return grp;
+}
+
+function buildHull(r, mode){
+  const grp=new THREE.Group();
+  if(mode==='ext' || mode==='extAll'){
+    grp.add(faceMesh(r, 0x0d0d11, 1));
+    if(mode==='extAll'){
+      const all=lineSeg(G.edges, r, 0xffffff, 0.95, true); all.userData.pulse=true; grp.add(all);
+    } else {
+      grp.add(lineSeg(interiorE, r, 0x55585f, 0.4, false));
+      const rad=lineSeg(radialE, r, 0xffffff, 0.95, true); rad.userData.pulse=true; grp.add(rad);
+    }
+    grp.add(phiNodes(r, 0xbfe0ff, 0.05*r));
+    const noz=new THREE.Mesh(new THREE.ConeGeometry(0.32*r,0.5*r,22,1,true),
+      new THREE.MeshStandardMaterial({color:0x1a1a1f, emissive:0x3a1404, emissiveIntensity:.6, roughness:.8, side:THREE.DoubleSide}));
+    noz.position.y=-r-0.28*r; noz.rotation.x=Math.PI; grp.add(noz);
+    const ar=new THREE.Mesh(new THREE.ConeGeometry(0.12*r,0.3*r,18), new THREE.MeshBasicMaterial({color:0x88ccff}));
+    ar.position.y=r+0.28*r; grp.add(ar);
+  } else {
+    grp.add(faceMesh(r, 0x10131a, 0.10));
+    const fpos=[]; for(let i=0;i<G.orig;i++){ const v=G.verts[i]; fpos.push(0,0,0, v[0]*r,v[1]*r,v[2]*r); }
+    const fg=new THREE.BufferGeometry(); fg.setAttribute('position',new THREE.Float32BufferAttribute(fpos,3));
+    grp.add(new THREE.LineSegments(fg, new THREE.LineBasicMaterial({color:0x2f6f8f, transparent:true, opacity:.5})));
+    const rad=lineSeg(radialE, r, 0x35e0ff, 0.95, true); rad.userData.pulse=true; grp.add(rad);
+    grp.add(new THREE.Mesh(new THREE.SphereGeometry(0.12*r,16,16), new THREE.MeshBasicMaterial({color:0xffcf6a})));
+    grp.add(phiNodes(r, 0xbfe0ff, 0.055*r));
+    if(mode==='retA'){
+      grp.add(lineSeg(interiorE, r, 0x4a4d55, 0.45, false));
+      grp.add(new THREE.Mesh(new THREE.CylinderGeometry(0.04*r,0.04*r,2*r,16),
+        new THREE.MeshBasicMaterial({color:0xffae3d, transparent:true, opacity:.9})));
+      grp.add(new THREE.Mesh(new THREE.CylinderGeometry(0.09*r,0.09*r,2*r,16),
+        new THREE.MeshBasicMaterial({color:0xffae3d, transparent:true, opacity:.16, blending:THREE.AdditiveBlending})));
+    } else {
+      const ret=lineSeg(interiorE, r, 0xffae3d, 0.9, true); ret.userData.pulse=true; grp.add(ret);
+    }
+  }
+  return grp;
+}
+
+// ---------- camera fit (always fits screen + aspect) ----------
+function fitCamera(needed){
+  const v=camera.fov*Math.PI/180;
+  const h=2*Math.atan(Math.tan(v/2)*camera.aspect);
+  const dz=Math.max(needed/Math.sin(v/2), needed/Math.sin(h/2));
+  camera.position.set(0,0,dz*1.06); camera.lookAt(0,0,0);
+}
+
+let pulses=[], fitR=2;
+function setView(view){
+  while(root.children.length) root.remove(root.children[0]);
+  pulses=[];
+  const labL=document.getElementById('labL'), labR=document.getElementById('labR');
+  if(view==='ext' || view==='extAll'){
+    root.add(buildHull(1, view));
+    fitR=1.45;
+    labL.classList.add('hidden'); labR.classList.add('hidden');
+    (view==='extAll') ? legendAll() : legendExt();
+  } else {
+    const r=0.85, off=1.25;
+    const hL=buildHull(r,'retA'); hL.position.x=-off; root.add(hL);
+    const hR=buildHull(r,'retB'); hR.position.x= off; root.add(hR);
+    fitR=off+r+0.3;
+    placeSideLabels(off);
+    labL.classList.remove('hidden'); labR.classList.remove('hidden');
+    legendTr();
+  }
+  root.traverse(o=>{ if(o.userData.pulse) pulses.push(o); });
+  fitCamera(fitR);
+}
+function placeSideLabels(off){
+  // project x=-off and x=+off (approx) to screen %, simpler: fixed 27% / 73%
+  document.getElementById('labL').style.left='27%';
+  document.getElementById('labR').style.left='73%';
+}
+function legendAll(){
+  document.getElementById('legend').innerHTML =
+   `<div class="row"><span class="sw" style="background:#0d0d11;border:1px solid #333"></span><span class="t">faces — noir mat</span></div>
+    <div class="row"><span class="sw" style="background:#fff;box-shadow:0 0 6px #fff"></span><span class="t">120 arêtes — toutes lumineuses</span></div>
+    <div class="row"><span class="dot" style="background:#bfe0ff"></span><span class="t">12 nœuds φ</span></div>
+    <div class="row"><span class="dot" style="background:#88ccff"></span><span class="t">haut = direction · bas = tuyère</span></div>`;
+}
+function legendExt(){
+  document.getElementById('legend').innerHTML =
+   `<div class="row"><span class="sw" style="background:#0d0d11;border:1px solid #333"></span><span class="t">faces — noir mat (radiateur)</span></div>
+    <div class="row"><span class="sw" style="background:#fff;box-shadow:0 0 6px #fff"></span><span class="t">60 arêtes radiales — plasma lumineux</span></div>
+    <div class="row"><span class="sw" style="background:#55585f"></span><span class="t">60 arêtes internes — structure</span></div>
+    <div class="row"><span class="dot" style="background:#bfe0ff"></span><span class="t">12 nœuds φ — distributeurs</span></div>
+    <div class="row"><span class="dot" style="background:#88ccff"></span><span class="t">haut = direction · bas = tuyère</span></div>`;
+}
+function legendTr(){
+  document.getElementById('legend').innerHTML =
+   `<div class="row"><span class="dot" style="background:#ffcf6a"></span><span class="t">cœur réacteur (axe)</span></div>
+    <div class="row"><span class="sw" style="background:#2f6f8f"></span><span class="t">alimentation cœur → 12 nœuds φ</span></div>
+    <div class="row"><span class="sw" style="background:#35e0ff;box-shadow:0 0 6px #35e0ff"></span><span class="t">aller — 60 arêtes radiales (plasma)</span></div>
+    <div class="row"><span class="sw" style="background:#ffae3d;box-shadow:0 0 6px #ffae3d"></span><span class="t">retour — central (g.) / arêtes internes (d.)</span></div>
+    <div class="row"><span class="sw" style="background:#4a4d55"></span><span class="t">structure pure (gauche)</span></div>`;
+}
+
+// ---------- interaction ----------
+let drag=false, px=0, py=0, autoR=true;
+renderer.domElement.addEventListener('pointerdown', e=>{ drag=true; autoR=false; px=e.clientX; py=e.clientY; });
+window.addEventListener('pointerup', ()=> drag=false);
+window.addEventListener('pointermove', e=>{ if(!drag)return; root.rotation.y+=(e.clientX-px)/180; root.rotation.x+=(e.clientY-py)/180; px=e.clientX; py=e.clientY; });
+renderer.domElement.addEventListener('wheel', e=>{ e.preventDefault(); camera.position.z=Math.max(fitR*0.6,Math.min(fitR*4, camera.position.z+e.deltaY*0.004*fitR)); }, {passive:false});
+
+document.getElementById('bExt').onclick=function(){ this.classList.add('on'); document.getElementById('bTr').classList.remove('on'); setView('ext'); };
+document.getElementById('bTr').onclick=function(){ this.classList.add('on'); document.getElementById('bExt').classList.remove('on'); setView('tr'); };
+
+function resize(){ const w=stage.clientWidth,h=stage.clientHeight; renderer.setSize(w,h); camera.aspect=w/h; camera.updateProjectionMatrix(); fitCamera(fitR); }
+window.addEventListener('resize', resize);
+
+function loop(t){
+  requestAnimationFrame(loop); const tm=t*0.001;
+  if(autoR) root.rotation.y+=0.0035;
+  for(const o of pulses) o.material.opacity = 0.55 + 0.4*Math.abs(Math.sin(tm*2));
+  renderer.render(scene,camera);
+}
+resize(); setView('ext'); loop(0);
+</script>
+</body>
+</html>

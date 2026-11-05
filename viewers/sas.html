@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ARÈS-7 — face-sas & axes d'assemblage</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html,body { height:100%; background:#060608; color:#d8d8d2; font-family:system-ui,-apple-system,sans-serif; overflow:hidden; }
+  #wrap { display:flex; flex-direction:column; height:100vh; }
+  #bar { display:flex; align-items:center; gap:8px; padding:10px 14px; border-bottom:1px solid #1d1d22; flex-wrap:wrap; }
+  #bar h1 { font-size:14px; font-weight:500; margin-right:6px; }
+  #bar h1 span { color:#7a7a82; font-weight:400; font-size:12px; }
+  button { background:#141418; color:#cfcfca; border:1px solid #2a2a31; padding:6px 12px; border-radius:7px; font-size:12px; cursor:pointer; }
+  button.on { background:#2a2a33; border-color:#4a4a55; color:#fff; }
+  #stage { position:relative; flex:1; min-height:0; }
+  canvas { display:block; }
+  #legend { position:absolute; left:14px; bottom:14px; background:rgba(10,10,14,.82); border:1px solid #22222a;
+            border-radius:9px; padding:10px 12px; max-width:320px; font-size:11.5px; line-height:1.5; pointer-events:none; }
+  #legend .row { display:flex; align-items:center; gap:8px; margin:3px 0; }
+  #legend .sw { width:18px; height:3px; border-radius:2px; flex:none; }
+  #legend .dot { width:9px; height:9px; border-radius:50%; flex:none; }
+  #legend .t { color:#9a9aa2; }
+  #hint { position:absolute; right:14px; bottom:14px; color:#5a5a62; font-size:11.5px; pointer-events:none; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div id="bar">
+    <h1>ARÈS-7 <span>— la face-sas · pôles plats · axes d'assemblage</span></h1>
+    <button id="bAxes">Les 10 axes (faces opposées)</button>
+    <button id="bGhost">+ 1 module</button>
+    <button id="bG8">Grappe ×8 (contact direct)</button>
+    <button id="bG19">Grappe ×19 (tunnels 5,6 m)</button>
+    <button id="bG31">Croissance ×31 (2 couronnes)</button>
+    <button id="bForme">Formes : chaîne</button>
+    <button id="bChamps">Champs : bulle + dipôle + vent</button>
+  </div>
+  <div id="stage">
+    <div id="legend"></div>
+    <div id="hint">glisser pour tourner · molette pour zoomer</div>
+  </div>
+</div>
+
+<script src="lib/three.min.js"></script>
+<script>
+const stage = document.getElementById('stage');
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 100);
+const renderer = new THREE.WebGLRenderer({ antialias:true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
+stage.appendChild(renderer.domElement);
+scene.add(new THREE.AmbientLight(0x3a3a44, 1.0));
+const key = new THREE.DirectionalLight(0xffffff, 0.85); key.position.set(4,6,5); scene.add(key);
+const rim = new THREE.DirectionalLight(0x5577ff, 0.35); rim.position.set(-5,-3,-4); scene.add(rim);
+const root = new THREE.Group(); root.rotation.x = 0.3; scene.add(root);
+
+// ---------- géodésique f2 (identique aux autres viewers) ----------
+function norm(v){ const l=Math.hypot(v[0],v[1],v[2]); return [v[0]/l,v[1]/l,v[2]/l]; }
+function buildF2(){
+  const t=(1+Math.sqrt(5))/2;
+  const ico=[[-1,t,0],[1,t,0],[-1,-t,0],[1,-t,0],[0,-1,t],[0,1,t],[0,-1,-t],[0,1,-t],[t,0,-1],[t,0,1],[-t,0,-1],[-t,0,1]].map(norm);
+  const F=[[0,11,5],[0,5,1],[0,1,7],[0,7,10],[0,10,11],[1,5,9],[5,11,4],[11,10,2],[10,7,6],[7,1,8],[3,9,4],[3,4,2],[3,2,6],[3,6,8],[3,8,9],[4,9,5],[2,4,11],[6,2,10],[8,6,7],[9,8,1]];
+  const verts=ico.slice(); const cache={};
+  const mid=(a,b)=>{ const k=a<b?a+'_'+b:b+'_'+a; if(cache[k]!=null)return cache[k]; const va=verts[a],vb=verts[b]; const m=norm([(va[0]+vb[0])/2,(va[1]+vb[1])/2,(va[2]+vb[2])/2]); const i=verts.length; verts.push(m); cache[k]=i; return i; };
+  const eset={}; const ae=(a,b)=>{ const k=a<b?a+'_'+b:b+'_'+a; eset[k]=[a,b]; };
+  const faces=[];
+  for(const [a,b,c] of F){ const ab=mid(a,b),bc=mid(b,c),ca=mid(c,a);
+    faces.push([a,ab,ca],[b,bc,ab],[c,ca,bc],[ab,bc,ca]);
+    ae(a,ab);ae(ab,b);ae(b,bc);ae(bc,c);ae(c,ca);ae(ca,a);ae(ab,bc);ae(bc,ca);ae(ca,ab); }
+  return { verts, edges:Object.values(eset), faces, orig:12 };
+}
+const G = buildF2();
+const v3 = a => new THREE.Vector3(a[0],a[1],a[2]);
+const fcRaw = f => new THREE.Vector3().add(v3(G.verts[f[0]])).add(v3(G.verts[f[1]])).add(v3(G.verts[f[2]])).multiplyScalar(1/3);
+
+// ---------- orientation FACE-PÔLE (validée) ----------
+const q = new THREE.Quaternion().setFromUnitVectors(fcRaw(G.faces[3]).clone().normalize(), new THREE.Vector3(0,1,0));
+G.verts = G.verts.map(a => { const p = v3(a).applyQuaternion(q); return [p.x,p.y,p.z]; });
+
+// ---------- faces centrales : indices i*4+3 ; pôles = |cy|max ----------
+const central = []; for(let i=0;i<20;i++) central.push(i*4+3);
+const cInfo = central.map(fi => { const c = fcRaw(G.faces[fi]); return { fi, c, n: c.clone().normalize() }; });
+cInfo.sort((a,b)=>Math.abs(b.c.y)-Math.abs(a.c.y));
+const polar = [cInfo[0], cInfo[1]];                                    // les 2 pôles plats
+const rest  = cInfo.slice(2);
+// paires antipodales parmi les 18 restantes (9 axes d'assemblage)
+const pairs = [];
+const used = new Set();
+for(const A of rest){ if(used.has(A.fi)) continue;
+  let best=null, bd=1e9;
+  for(const B of rest){ if(B.fi===A.fi||used.has(B.fi)) continue;
+    const d = A.n.clone().add(B.n).length(); if(d<bd){bd=d;best=B;} }
+  if(best){ used.add(A.fi); used.add(best.fi); pairs.push([A,best]); } }
+// la paire SAS = la plus proche de l'équateur
+pairs.sort((p,q2)=>Math.abs(p[0].c.y)-Math.abs(q2[0].c.y));
+const sasPair = pairs[0];
+
+// ---------- rendu coque ----------
+function faceMesh(){
+  const grp=new THREE.Group();
+  const buckets = { normal:[], polar:[], sas:[] };
+  const sasSet = new Set([sasPair[0].fi, sasPair[1].fi]);
+  const polSet = new Set([polar[0].fi, polar[1].fi]);
+  G.faces.forEach((f,k)=>{
+    const dst = sasSet.has(k)?buckets.sas : polSet.has(k)?buckets.polar : buckets.normal;
+    for(const idx of f){ const v=G.verts[idx]; dst.push(v[0],v[1],v[2]); }
+  });
+  const mk=(arr,mat)=>{ const g=new THREE.BufferGeometry();
+    g.setAttribute('position',new THREE.Float32BufferAttribute(arr,3)); g.computeVertexNormals();
+    grp.add(new THREE.Mesh(g,mat)); };
+  mk(buckets.normal, new THREE.MeshStandardMaterial({color:0x0d0d11, roughness:1, side:THREE.DoubleSide, flatShading:true}));
+  mk(buckets.polar,  new THREE.MeshStandardMaterial({color:0x223344, emissive:0x1a3a55, emissiveIntensity:.8, roughness:1, side:THREE.DoubleSide, flatShading:true}));
+  mk(buckets.sas,    new THREE.MeshStandardMaterial({color:0x1d3a2a, emissive:0x2a8a55, emissiveIntensity:.9, roughness:1, side:THREE.DoubleSide, flatShading:true}));
+  return grp;
+}
+function edgeLines(verts, color, opacity){
+  const pos=[];
+  for(const [a,b] of G.edges){ const va=verts[a],vb=verts[b]; pos.push(va[0],va[1],va[2], vb[0],vb[1],vb[2]); }
+  const g=new THREE.BufferGeometry(); g.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));
+  return new THREE.LineSegments(g,new THREE.LineBasicMaterial({color, transparent:true, opacity, blending:THREE.AdditiveBlending}));
+}
+function phiNodes(){
+  const grp=new THREE.Group();
+  for(let i=0;i<G.orig;i++){ const v=G.verts[i];
+    const s=new THREE.Mesh(new THREE.SphereGeometry(0.045,12,12), new THREE.MeshBasicMaterial({color:0xbfe0ff}));
+    s.position.set(v[0],v[1],v[2]); grp.add(s); }
+  return grp;
+}
+// écoutille + collerette sur chaque face-sas
+function sasHatch(info){
+  const grp=new THREE.Group();
+  const f=G.faces[info.fi];
+  const A=v3(G.verts[f[0]]), B=v3(G.verts[f[1]]), C=v3(G.verts[f[2]]);
+  const cen=new THREE.Vector3().add(A).add(B).add(C).multiplyScalar(1/3);
+  const n=info.n;
+  const a=B.distanceTo(C), b=A.distanceTo(C), c=A.distanceTo(B);
+  const s=(a+b+c)/2, area=Math.sqrt(s*(s-a)*(s-b)*(s-c)), rin=area/s*0.92;
+  // anneau de l'écoutille
+  const T1=new THREE.Vector3().crossVectors(n, Math.abs(n.y)<0.9?new THREE.Vector3(0,1,0):new THREE.Vector3(1,0,0)).normalize();
+  const T2=new THREE.Vector3().crossVectors(n,T1).normalize();
+  const pts=[];
+  for(let i=0;i<=48;i++){ const t=i/48*Math.PI*2;
+    pts.push(cen.clone().addScaledVector(T1,Math.cos(t)*rin).addScaledVector(T2,Math.sin(t)*rin)); }
+  grp.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts),
+    new THREE.LineBasicMaterial({color:0x6fe8a8})));
+  // collerette (petit cylindre d'amarrage)
+  const col=new THREE.Mesh(new THREE.CylinderGeometry(rin*0.85, rin*0.85, 0.07, 24, 1, true),
+    new THREE.MeshStandardMaterial({color:0x2a4a38, emissive:0x1a5a3a, emissiveIntensity:.5, side:THREE.DoubleSide}));
+  col.position.copy(cen).addScaledVector(n, 0.035);
+  col.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0), n);
+  grp.add(col);
+  return grp;
+}
+// interface d'amarrage : les 3 arêtes des DEUX faces coïncident (la réflexion fixe le plan)
+function ifaceMark(info){
+  const f=G.faces[info.fi];
+  const pts=[0,1,2,0].map(i=>v3(G.verts[f[i%3]]));
+  const g=new THREE.BufferGeometry().setFromPoints(pts);
+  return new THREE.Line(g,new THREE.LineBasicMaterial({color:0xffae3d, transparent:true, opacity:1, blending:THREE.AdditiveBlending}));
+}
+// module fantôme amarré sas-contre-sas (réflexion sur le plan de la face-sas)
+function ghostModule(info){
+  const f=G.faces[info.fi], n=info.n;
+  const d = v3(G.verts[f[0]]).dot(n);
+  const refl = p => { const P=v3(p); return P.addScaledVector(n, -2*(P.dot(n)-d)); };
+  const gv = G.verts.map(p=>{ const r=refl(p); return [r.x,r.y,r.z]; });
+  const grp=new THREE.Group();
+  grp.add(edgeLines(gv, 0x88ccff, 0.35));
+  grp.add(ifaceMark(info));
+  grp.userData.centers=[[n.x*2*d, n.y*2*d, n.z*2*d]];
+  return grp;
+}
+// grappes d'amarrage : 8 en contact direct (max sans collision) / 19 avec tunnels
+function reflVerts(info, t){
+  const n=info.n, f=G.faces[info.fi];
+  const dF = v3(G.verts[f[0]]).dot(n);
+  return G.verts.map(p=>{ const P=v3(p); P.addScaledVector(n, -2*(P.dot(n)-dF)); if(t) P.addScaledVector(n, t); return [P.x,P.y,P.z]; });
+}
+function bestEight(ports){
+  // collision si angle < 2·asin(1/(2d)) ; recherche exacte par masque de bits
+  const dF = v3(G.verts[G.faces[ports[0].fi][0]]).dot(ports[0].n);
+  const need = Math.cos(2*Math.asin(1/(2*dF)));   // cos du seuil : conflit si dot > need
+  const n=ports.length, adj=new Array(n).fill(0);
+  for(let i=0;i<n;i++)for(let j=0;j<n;j++) if(i!==j && ports[i].n.dot(ports[j].n) > need+1e-9) adj[i]|=(1<<j);
+  let best=0, bm=0;
+  for(let m=0;m<(1<<n);m++){ let ok=true,c=0;
+    for(let i=0;i<n&&ok;i++) if(m&(1<<i)){ c++; if(adj[i]&m) ok=false; }
+    if(ok&&c>best){best=c;bm=m;} }
+  return ports.filter((_,i)=>bm&(1<<i));
+}
+function clusterGroup(mode){
+  const grp=new THREE.Group();
+  const dF = v3(G.verts[G.faces[rest[0].fi][0]]).dot(rest[0].n);
+  const t = mode==='t19' ? (1/Math.sin(20.9*Math.PI/360*2)) - 2*dF : 0;  // tunnel ~0,93 (unités R=1)
+  const ports = mode==='t19' ? rest : bestEight(rest);
+  for(const p of ports){
+    grp.add(edgeLines(reflVerts(p, t), 0x88ccff, 0.28));
+    grp.add(ifaceMark(p));
+    if(t>0){ // tunnel visible
+      const tun=new THREE.Mesh(new THREE.CylinderGeometry(0.14,0.14,t,12,1,true),
+        new THREE.MeshBasicMaterial({color:0x6fe8a8, transparent:true, opacity:.45, side:THREE.DoubleSide}));
+      tun.position.copy(p.n.clone().multiplyScalar(dF + t/2));
+      tun.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0), p.n);
+      grp.add(tun);
+    }
+  }
+  grp.userData.centers = ports.map(p=>[p.n.x*(2*dF+t), p.n.y*(2*dF+t), p.n.z*(2*dF+t)]);
+  return grp;
+}
+// croissance corail : couronnes successives par réflexions composées (contact direct)
+function growCluster(shells){
+  const dot3=(a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2];
+  const P = rest.map(p=>({n:[p.n.x,p.n.y,p.n.z], d:v3(G.verts[G.faces[p.fi][0]]).dot(p.n)}));
+  const reflOf=p=>({A:[[1-2*p.n[0]*p.n[0],-2*p.n[0]*p.n[1],-2*p.n[0]*p.n[2]],
+                       [-2*p.n[1]*p.n[0],1-2*p.n[1]*p.n[1],-2*p.n[1]*p.n[2]],
+                       [-2*p.n[2]*p.n[0],-2*p.n[2]*p.n[1],1-2*p.n[2]*p.n[2]]],
+                    b:[2*p.d*p.n[0],2*p.d*p.n[1],2*p.d*p.n[2]]});
+  const compose=(T,R)=>({A:[0,1,2].map(i=>[0,1,2].map(j=>T.A[i][0]*R.A[0][j]+T.A[i][1]*R.A[1][j]+T.A[i][2]*R.A[2][j])),
+                         b:[0,1,2].map(i=>dot3(T.A[i],R.b)+T.b[i])});
+  const refls=P.map(reflOf);
+  const mods=[{T:{A:[[1,0,0],[0,1,0],[0,0,1]],b:[0,0,0]},c:[0,0,0],shell:0}];
+  let queue=[mods[0]];
+  for(let s=1;s<=shells;s++){ const added=[];
+    for(const m of queue) for(const R of refls){
+      const T2=compose(m.T,R), c2=T2.b;
+      if(mods.some(x=>Math.hypot(x.c[0]-c2[0],x.c[1]-c2[1],x.c[2]-c2[2])<1.86)) continue;
+      const nm={T:T2,c:c2,shell:s}; mods.push(nm); added.push(nm);
+    }
+    queue=added;
+  }
+  const grp=new THREE.Group();
+  const cols=[0,0x88ccff,0x6fe8a8,0xffae3d];
+  for(const m of mods){ if(m.shell===0) continue;
+    const tv=G.verts.map(p=>{const q=[dot3(m.T.A[0],p)+m.T.b[0],dot3(m.T.A[1],p)+m.T.b[1],dot3(m.T.A[2],p)+m.T.b[2]];return q;});
+    grp.add(edgeLines(tv, cols[m.shell]||0x88ccff, m.shell===1?0.32:0.2));
+  }
+  grp.userData.centers = mods.filter(m=>m.shell>0).map(m=>m.c);
+  return grp;
+}
+// formes assemblées : chaîne / anneau fermé / croix (mêmes réflexions exactes)
+function shapesGroup(mode){
+  const dot3=(a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2];
+  const P = cInfo.map(p=>({n:[p.n.x,p.n.y,p.n.z], d:v3(G.verts[G.faces[p.fi][0]]).dot(p.n)}));
+  const reflOf=p=>({A:[[1-2*p.n[0]*p.n[0],-2*p.n[0]*p.n[1],-2*p.n[0]*p.n[2]],
+                       [-2*p.n[1]*p.n[0],1-2*p.n[1]*p.n[1],-2*p.n[1]*p.n[2]],
+                       [-2*p.n[2]*p.n[0],-2*p.n[2]*p.n[1],1-2*p.n[2]*p.n[2]]],
+                    b:[2*p.d*p.n[0],2*p.d*p.n[1],2*p.d*p.n[2]]});
+  const compose=(T,R)=>({A:[0,1,2].map(i=>[0,1,2].map(j=>T.A[i][0]*R.A[0][j]+T.A[i][1]*R.A[1][j]+T.A[i][2]*R.A[2][j])),
+                         b:[0,1,2].map(i=>dot3(T.A[i],R.b)+T.b[i])});
+  const refls=P.map(reflOf), I0={A:[[1,0,0],[0,1,0],[0,0,1]],b:[0,0,0]};
+  const chainAlong=(start,n,len)=>{ // prolonge tout droit : à chaque pas, la réflexion qui avance le plus selon n
+    const out=[start]; let T=start;
+    for(let k=0;k<len;k++){ let bst=null,bd=-1e9;
+      for(const R of refls){ const T2=compose(T,R); const adv=dot3(T2.b,n);
+        if(adv>bd+1e-6){bd=adv;bst=T2;} }
+      out.push(bst); T=bst; }
+    return out;
+  };
+  let mods=[];
+  if(mode==='chaine'){ mods=chainAlong(I0,[rest[0].n.x,rest[0].n.y,rest[0].n.z],5); }
+  else if(mode==='anneau'){ // cherche un cycle fermé court (BFS profondeur 3)
+    const seen=new Map([["0.000,0.000,0.000",[I0]]]);
+    let layer=[{T:I0,path:[I0]}], found=null;
+    for(let s=1;s<=3&&!found;s++){ const nx=[];
+      for(const nd of layer) for(const R of refls){ const T2=compose(nd.T,R);
+        const key=T2.b.map(x=>x.toFixed(3)).join(",");
+        const p2=[...nd.path,T2];
+        if(seen.has(key)){ const p1=seen.get(key);
+          if(p1.length+p2.length>=5 && p1.length>1||s>1){ found=[...p1,...p2]; break; } continue; }
+        seen.set(key,p2); nx.push({T:T2,path:p2}); }
+      layer=nx; }
+    mods=found||[I0];
+  }
+  else { // croix : 4 bras de 2 modules sur des ports compatibles (>=65 deg)
+    const picks=[];
+    for(const p of P.slice(2)){ if(picks.every(q=>Math.acos(Math.max(-1,Math.min(1,dot3(q.n,p.n))))>1.13)) picks.push(p); if(picks.length===4) break; }
+    mods=[I0];
+    for(const p of picks){ const arm=chainAlong(compose(I0,reflOf(p)),p.n,1); mods.push(...arm); }
+  }
+  // dédup + rendu
+  const grp=new THREE.Group(), seenC=new Set(), cs=[];
+  for(const T of mods){ const k=T.b.map(x=>x.toFixed(2)).join(",");
+    if(seenC.has(k))continue; seenC.add(k);
+    const isC = Math.hypot(T.b[0],T.b[1],T.b[2])<0.01;
+    if(!isC) cs.push(T.b);
+    const tv=G.verts.map(p=>[dot3(T.A[0],p)+T.b[0],dot3(T.A[1],p)+T.b[1],dot3(T.A[2],p)+T.b[2]]);
+    grp.add(edgeLines(tv, isC?0xffffff:0x88ccff, isC?0.5:0.3)); }
+  grp.userData.centers=cs;
+  return grp;
+}
+// champs PAR MODULE : dipôle + petite bulle, + grande bulle commune + vent (transparents, depthWrite off)
+function fieldsKit(c){
+  const grp=new THREE.Group();
+  for(const L of [1.5,2.1]) for(let k=0;k<4;k++){
+    const ph=k*Math.PI/2, pts=[];
+    for(let i=0;i<=48;i++){const th=0.25+(Math.PI-0.5)*i/48; const r=L*Math.sin(th)*Math.sin(th);
+      if(r<1.03) continue;
+      pts.push(new THREE.Vector3(r*Math.sin(th)*Math.cos(ph), r*Math.cos(th), r*Math.sin(th)*Math.sin(ph)));}
+    if(pts.length>2) grp.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts),
+      new THREE.LineBasicMaterial({color:0x5b9dff, transparent:true, opacity:.3, depthWrite:false, blending:THREE.AdditiveBlending})));
+  }
+  grp.add(new THREE.Mesh(new THREE.SphereGeometry(1.45,24,18),
+    new THREE.MeshBasicMaterial({color:0x8fd0ff, transparent:true, opacity:.035, depthWrite:false})));
+  grp.position.set(c[0],c[1],c[2]);
+  return grp;
+}
+let champs=null, champsOn=false;
+function champsRefresh(){
+  if(champs){ root.remove(champs); champs=null; }
+  if(!champsOn) return;
+  champs=new THREE.Group();
+  const centers=[[0,0,0]];
+  for(const g of [ghost,g8,g19,g31,forme]) if(g&&g.visible&&g.userData.centers) centers.push(...g.userData.centers);
+  let maxR=0; for(const c of centers) maxR=Math.max(maxR,Math.hypot(c[0],c[1],c[2]));
+  for(const c of centers) champs.add(fieldsKit(c));
+  const Rb=maxR+2.4;
+  champs.add(new THREE.Mesh(new THREE.SphereGeometry(Rb,32,24),
+    new THREE.MeshBasicMaterial({color:0x5b9dff, transparent:true, opacity:.025, depthWrite:false})));
+  for(let k=0;k<14;k++){
+    const y0=-Rb*1.1+2.2*Rb*1.1*k/13, z0=(k%2?0.3*Rb:-0.3*Rb), pts=[];
+    for(let i=0;i<=60;i++){const x=Rb*2-Rb*4*i/60; let p=new THREE.Vector3(x,y0,z0);
+      const r=p.length(); if(r<Rb*1.03) p.multiplyScalar(Rb*1.03/r);
+      pts.push(p);}
+    champs.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts),
+      new THREE.LineBasicMaterial({color:0xffae3d, transparent:true, opacity:.35, depthWrite:false, blending:THREE.AdditiveBlending})));
+  }
+  root.add(champs);
+}
+// axes d'assemblage
+function axesGroup(){
+  const grp=new THREE.Group();
+  const mkLine=(n,color,op)=>{ const g=new THREE.BufferGeometry().setFromPoints(
+      [n.clone().multiplyScalar(-1.45), n.clone().multiplyScalar(1.45)]);
+    grp.add(new THREE.Line(g,new THREE.LineBasicMaterial({color, transparent:true, opacity:op}))); };
+  mkLine(new THREE.Vector3(0,1,0), 0xffae3d, 0.9);          // axe polaire = poussée
+  for(const [A] of pairs) mkLine(A.n, 0x5b9dff, 0.45);       // 9 axes d'assemblage
+  return grp;
+}
+
+// ---------- assemblage de la scène ----------
+root.add(faceMesh());
+root.add(edgeLines(G.verts, 0xffffff, 0.8));
+root.add(phiNodes());
+root.add(sasHatch(sasPair[0]));
+root.add(sasHatch(sasPair[1]));
+const axes = axesGroup(); axes.visible=false; root.add(axes);
+const ghost = ghostModule(sasPair[0]); ghost.visible=false; root.add(ghost);
+let g8=null, g19=null, g31=null; // grappes construites au premier clic
+let forme=null, formeMode=-1; const FORMES=['chaine','anneau','croix'], FLBL={chaine:'chaîne',anneau:'anneau fermé',croix:'croix'};
+
+document.getElementById('legend').innerHTML =
+ `<div class="row"><span class="dot" style="background:#2a8a55"></span><span class="t">2 faces-sas (équateur, opposées) — écoutille Ø 2,1 m + collerette d'amarrage</span></div>
+  <div class="row"><span class="dot" style="background:#1a3a55"></span><span class="t">2 pôles PLATS (faces centrales) : avant + tuyère — axe de poussée</span></div>
+  <div class="row"><span class="sw" style="background:#ffae3d"></span><span class="t">axe polaire (poussée) — 1 des 10 axes d'ordre 3</span></div>
+  <div class="row"><span class="sw" style="background:#5b9dff"></span><span class="t">9 axes d'assemblage (paires de faces centrales opposées)</span></div>
+  <div class="row"><span class="dot" style="background:#bfe0ff"></span><span class="t">12 nœuds φ — jamais touchés : aucune arête coupée</span></div>
+  <div class="row"><span class="sw" style="background:#6fe8a8"></span><span class="t">grappes : ×8 en contact direct (max sans collision) · ×19 avec tunnels ~5,6 m</span></div>
+  <div class="row"><span class="sw" style="background:#ffae3d"></span><span class="t">interface d'amarrage : les 3 arêtes des DEUX faces coïncident → réseaux 60/60 CONTINUS entre modules (via les nœuds-vannes)</span></div>
+  <div class="row"><span class="sw" style="background:#5b9dff"></span><span class="t">champs : lignes du dipôle (convergent aux cusps) + bulle M2P2 translucide · orange = vent solaire dévié</span></div>`;
+
+// ---------- interactions ----------
+function fitCamera(){ const v=camera.fov*Math.PI/180; const h=2*Math.atan(Math.tan(v/2)*camera.aspect);
+  const need=1.6; const dz=Math.max(need/Math.sin(v/2), need/Math.sin(h/2));
+  camera.position.set(0,0,dz*1.05); camera.lookAt(0,0,0); }
+let drag=false,px=0,py=0,autoR=true;
+renderer.domElement.addEventListener('pointerdown',e=>{drag=true;autoR=false;px=e.clientX;py=e.clientY;});
+window.addEventListener('pointerup',()=>drag=false);
+window.addEventListener('pointermove',e=>{if(!drag)return;root.rotation.y+=(e.clientX-px)/180;root.rotation.x+=(e.clientY-py)/180;px=e.clientX;py=e.clientY;});
+renderer.domElement.addEventListener('wheel',e=>{e.preventDefault();camera.position.z=Math.max(1.1,Math.min(14,camera.position.z+e.deltaY*0.005));},{passive:false});
+document.getElementById('bAxes').onclick=function(){ axes.visible=!axes.visible; this.classList.toggle('on',axes.visible); };
+document.getElementById('bChamps').onclick=function(){
+  champsOn=!champsOn; this.classList.toggle('on',champsOn); champsRefresh();
+};
+function toggleCluster(which, btn){
+  const mk=(g)=>{g.visible=false;root.add(g);return g;};
+  const map={ghost:()=>ghost, g8:()=>g8||(g8=mk(clusterGroup('d8'))), g19:()=>g19||(g19=mk(clusterGroup('t19'))), g31:()=>g31||(g31=mk(growCluster(2)))};
+  const target=map[which]();
+  const wasOn=target.visible;
+  ghost.visible=false; if(g8)g8.visible=false; if(g19)g19.visible=false; if(g31)g31.visible=false;
+  if(forme){ root.remove(forme); forme=null; formeMode=-1; document.getElementById('bForme').textContent='Formes : chaîne'; }
+  for(const id of ['bGhost','bG8','bG19','bG31','bForme']) document.getElementById(id).classList.remove('on');
+  if(!wasOn){ target.visible=true; btn.classList.add('on'); }
+  champsRefresh();
+}
+document.getElementById('bForme').onclick=function(){
+  ghost.visible=false; if(g8)g8.visible=false; if(g19)g19.visible=false; if(g31)g31.visible=false;
+  for(const id of ['bGhost','bG8','bG19','bG31']) document.getElementById(id).classList.remove('on');
+  formeMode=(formeMode+1)%FORMES.length;
+  if(forme) root.remove(forme);
+  forme=shapesGroup(FORMES[formeMode]); root.add(forme);
+  this.classList.add('on');
+  this.textContent='Formes : '+FLBL[FORMES[formeMode]]+' →';
+  champsRefresh();
+};
+document.getElementById('bGhost').onclick=function(){ toggleCluster('ghost',this); };
+document.getElementById('bG8').onclick=function(){ toggleCluster('g8',this); };
+document.getElementById('bG19').onclick=function(){ toggleCluster('g19',this); };
+document.getElementById('bG31').onclick=function(){ toggleCluster('g31',this); };
+function resize(){ const w=stage.clientWidth,h=stage.clientHeight; renderer.setSize(w,h); camera.aspect=w/h; camera.updateProjectionMatrix(); fitCamera(); }
+window.addEventListener('resize',resize);
+(function loop(){ requestAnimationFrame(loop); if(autoR) root.rotation.y+=0.0032; renderer.render(scene,camera); })();
+resize();
+</script>
+</body>
+</html>

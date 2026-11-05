@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ARÈS-7 — circuit plasma 24/60/36</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html,body { height:100%; background:#060608; color:#d8d8d2; font-family:system-ui,-apple-system,sans-serif; overflow:hidden; }
+  #wrap { display:flex; flex-direction:column; height:100vh; }
+  #bar { display:flex; align-items:center; gap:8px; padding:10px 14px; border-bottom:1px solid #1d1d22; flex-wrap:wrap; }
+  #bar h1 { font-size:14px; font-weight:500; margin-right:6px; letter-spacing:.4px; }
+  #bar h1 span { color:#7a7a82; font-weight:400; font-size:12px; }
+  button { background:#141418; color:#cfcfca; border:1px solid #2a2a31; padding:6px 12px; border-radius:7px; font-size:12px; cursor:pointer; transition:.15s; }
+  button:hover { background:#1d1d23; }
+  button.on { background:#2a2a33; border-color:#4a4a55; color:#fff; }
+  #stage { position:relative; flex:1; min-height:0; }
+  canvas { display:block; }
+  .ov { position:absolute; pointer-events:none; }
+  #legend { left:14px; bottom:14px; background:rgba(10,10,14,.82); border:1px solid #22222a; border-radius:9px; padding:10px 12px; max-width:310px; font-size:11.5px; line-height:1.5; }
+  #legend .row { display:flex; align-items:center; gap:8px; margin:3px 0; }
+  #legend .sw { width:18px; height:3px; border-radius:2px; flex:none; }
+  #legend .dot { width:9px; height:9px; border-radius:50%; flex:none; }
+  #legend .t { color:#9a9aa2; }
+  #legend .note { color:#6a6a72; font-size:10.5px; margin-top:6px; border-top:1px solid #22222a; padding-top:6px; }
+  #hint { right:14px; bottom:14px; color:#5a5a62; font-size:11.5px; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div id="bar">
+    <h1>ARÈS-7 <span>— circuit plasma 24 aller / 60 transit / 36 retour · candidat canon (🟡 non validé)</span></h1>
+    <button id="bReal" class="on">Rendu réel (blanc ×120, statique)</button>
+    <button id="bRoles">Diagramme du circuit (pédagogique)</button>
+    <button id="bFlow">Flux animé (diagramme seul)</button>
+    <button id="bAxis" class="on">Axe : faces (validé · à croiser)</button>
+  </div>
+  <div id="stage">
+    <div id="legend" class="ov"></div>
+    <div id="hint" class="ov">glisser pour tourner · molette pour zoomer</div>
+  </div>
+</div>
+
+<script src="lib/three.min.js"></script>
+<script>
+const stage = document.getElementById('stage');
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 100);
+const renderer = new THREE.WebGLRenderer({ antialias:true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
+stage.appendChild(renderer.domElement);
+
+scene.add(new THREE.AmbientLight(0x3a3a44, 1.0));
+const key = new THREE.DirectionalLight(0xffffff, 0.85); key.position.set(4,6,5); scene.add(key);
+const rim = new THREE.DirectionalLight(0x5577ff, 0.35); rim.position.set(-5,-3,-4); scene.add(rim);
+
+const root = new THREE.Group();
+root.rotation.x = 0.35;
+scene.add(root);
+
+// ---------- géodésique f2 (identique au visualiseur canon) ----------
+function norm(v){ const l=Math.hypot(v[0],v[1],v[2]); return [v[0]/l,v[1]/l,v[2]/l]; }
+function buildF2(){
+  const t=(1+Math.sqrt(5))/2;
+  const ico=[[-1,t,0],[1,t,0],[-1,-t,0],[1,-t,0],[0,-1,t],[0,1,t],[0,-1,-t],[0,1,-t],[t,0,-1],[t,0,1],[-t,0,-1],[-t,0,1]].map(norm);
+  const F=[[0,11,5],[0,5,1],[0,1,7],[0,7,10],[0,10,11],[1,5,9],[5,11,4],[11,10,2],[10,7,6],[7,1,8],[3,9,4],[3,4,2],[3,2,6],[3,6,8],[3,8,9],[4,9,5],[2,4,11],[6,2,10],[8,6,7],[9,8,1]];
+  const verts=ico.slice(); const cache={};
+  const mid=(a,b)=>{ const k=a<b?a+'_'+b:b+'_'+a; if(cache[k]!=null)return cache[k]; const va=verts[a],vb=verts[b]; const m=norm([(va[0]+vb[0])/2,(va[1]+vb[1])/2,(va[2]+vb[2])/2]); const i=verts.length; verts.push(m); cache[k]=i; return i; };
+  const eset={}; const ae=(a,b)=>{ const k=a<b?a+'_'+b:b+'_'+a; eset[k]=[a,b]; };
+  const faces=[];
+  for(const [a,b,c] of F){ const ab=mid(a,b),bc=mid(b,c),ca=mid(c,a);
+    faces.push([a,ab,ca],[b,bc,ab],[c,ca,bc],[ab,bc,ca]);
+    ae(a,ab);ae(ab,b);ae(b,bc);ae(bc,c);ae(c,ca);ae(ca,a);ae(ab,bc);ae(bc,ca);ae(ca,ab); }
+  return { verts, edges:Object.values(eset), faces, orig:12 };
+}
+const G = buildF2();
+const isOrig = i => i < G.orig;
+
+// ---------- orientation de l'axe polaire ----------
+// 'vertex' : axe par deux sommets φ opposés (disposition actuelle)
+// 'face'   : axe par les centres de deux petites faces centrales opposées (proposition)
+let axisMode='face';
+let polarFaces=[]; // indices des 2 faces polaires en mode 'face'
+const baseVerts = G.verts.map(v=>v.slice());
+function faceCenter(f, verts){
+  const c=[0,0,0];
+  for(const i of f){ c[0]+=verts[i][0]; c[1]+=verts[i][1]; c[2]+=verts[i][2]; }
+  return norm([c[0]/3,c[1]/3,c[2]/3]);
+}
+function orient(){
+  let target;
+  polarFaces=[];
+  if(axisMode==='vertex'){
+    target = v3(baseVerts[0]).normalize(); // un sommet φ vers +Y
+  } else {
+    // face centrale de la subdivision de la 1ère face d'origine : G.faces[3]
+    target = v3(faceCenter(G.faces[3], baseVerts)).normalize();
+  }
+  const q = new THREE.Quaternion().setFromUnitVectors(target, new THREE.Vector3(0,1,0));
+  for(let i=0;i<baseVerts.length;i++){
+    const p = v3(baseVerts[i]).applyQuaternion(q);
+    G.verts[i] = [p.x,p.y,p.z];
+  }
+  if(axisMode==='face'){
+    // repérer les 2 faces dont le centre est quasi aligné avec ±Y
+    G.faces.forEach((f,k)=>{
+      const c=faceCenter(f, G.verts);
+      if(Math.abs(c[1])>0.985) polarFaces.push(k);
+    });
+  }
+}
+orient();
+const radialE   = G.edges.filter(([a,b]) => isOrig(a) !== isOrig(b));   // 60
+const interiorE = G.edges.filter(([a,b]) => !isOrig(a) && !isOrig(b));  // 60
+
+// ---------- affectation 2 aller / 3 retour par nœud φ ----------
+// Règle déterministe et symétrique : à chaque nœud φ, on classe ses 5 radiales
+// par azimut autour de la direction radiale du nœud, et on prend les radiales
+// d'azimut pair (0,2) comme ALLER, les autres (1,3,4) comme RETOUR.
+// (Un des choix possibles — à figer définitivement lors de la validation canon.)
+function v3(a){ return new THREE.Vector3(a[0],a[1],a[2]); }
+const aller=[], retour=[];
+for(let n=0;n<G.orig;n++){
+  const incident = radialE.map((e,i)=>({e,i})).filter(o=>o.e[0]===n||o.e[1]===n);
+  const N = v3(G.verts[n]).normalize();
+  // base locale tangente
+  const ref = Math.abs(N.y)<0.9 ? new THREE.Vector3(0,1,0) : new THREE.Vector3(1,0,0);
+  const T1 = new THREE.Vector3().crossVectors(N,ref).normalize();
+  const T2 = new THREE.Vector3().crossVectors(N,T1).normalize();
+  const withAz = incident.map(o=>{
+    const other = o.e[0]===n ? o.e[1] : o.e[0];
+    const d = v3(G.verts[other]).sub(v3(G.verts[n]));
+    const az = Math.atan2(d.dot(T2), d.dot(T1));
+    return {o, other, az};
+  }).sort((a,b)=>a.az-b.az);
+  withAz.forEach((w,k)=>{
+    // sens : aller = du nœud φ vers le milieu ; retour = du milieu vers le nœud φ
+    if(k===0||k===2) aller.push([n, w.other]);
+    else retour.push([w.other, n]);
+  });
+}
+// vérification console : 24 ? non — 12×2=24 aller, 12×3=36 retour ✓
+console.log('aller:', aller.length, 'retour:', retour.length, 'internes:', interiorE.length);
+
+// orientation des internes : flux des milieux "sources" (touchés par aller)
+// vers les milieux "puits" (touchés par retour) — heuristique visuelle
+const inFlow = new Set(aller.map(e=>e[1]));   // milieux alimentés
+const outFlow = new Set(retour.map(e=>e[0])); // milieux drainés
+const interiorDir = interiorE.map(([a,b])=>{
+  const aSrc = inFlow.has(a), bSrc = inFlow.has(b);
+  if(aSrc && !bSrc) return [a,b];
+  if(bSrc && !aSrc) return [b,a];
+  return Math.random()<0.5?[a,b]:[b,a]; // milieux mixtes : sens visuel arbitraire
+});
+
+// ---------- rendu ----------
+const COL = { aller:0x35e0ff, transit:0xffffff, retour:0xffae3d, real:0xffffff };
+let edgeGroups={};
+function lineSeg(edges, color, opacity){
+  const pos=[];
+  for(const [a,b] of edges){ const va=G.verts[a],vb=G.verts[b];
+    pos.push(va[0],va[1],va[2], vb[0],vb[1],vb[2]); }
+  const g=new THREE.BufferGeometry();
+  g.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));
+  const m=new THREE.LineBasicMaterial({ color, transparent:true, opacity, blending:THREE.AdditiveBlending });
+  return new THREE.LineSegments(g,m);
+}
+function faceMesh(){
+  const grp=new THREE.Group();
+  const pos=[], polPos=[];
+  G.faces.forEach((f,k)=>{
+    const dst = polarFaces.includes(k) ? polPos : pos;
+    for(const idx of f){ const v=G.verts[idx]; dst.push(v[0],v[1],v[2]); }
+  });
+  const g=new THREE.BufferGeometry();
+  g.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));
+  g.computeVertexNormals();
+  grp.add(new THREE.Mesh(g,new THREE.MeshStandardMaterial({ color:0x0d0d11, roughness:1, metalness:0, side:THREE.DoubleSide, flatShading:true })));
+  if(polPos.length){
+    const pg=new THREE.BufferGeometry();
+    pg.setAttribute('position',new THREE.Float32BufferAttribute(polPos,3));
+    pg.computeVertexNormals();
+    grp.add(new THREE.Mesh(pg,new THREE.MeshStandardMaterial({ color:0x223344, emissive:0x1a3a55, emissiveIntensity:.7, roughness:1, side:THREE.DoubleSide, flatShading:true })));
+  }
+  return grp;
+}
+function phiNodes(){
+  const grp=new THREE.Group();
+  for(let i=0;i<G.orig;i++){ const v=G.verts[i];
+    const s=new THREE.Mesh(new THREE.SphereGeometry(0.05,12,12), new THREE.MeshBasicMaterial({color:0xbfe0ff}));
+    s.position.set(v[0],v[1],v[2]); grp.add(s); }
+  return grp;
+}
+
+// particules de flux
+const particles=[]; // {edge:[from,to], mesh, t, speed, group}
+function makeParticles(edges, color, group, count=1){
+  for(const e of edges){
+    for(let k=0;k<count;k++){
+      const m=new THREE.Mesh(new THREE.SphereGeometry(0.016,6,6), new THREE.MeshBasicMaterial({color, transparent:true, opacity:.95}));
+      root.add(m);
+      particles.push({edge:e, mesh:m, t:Math.random(), speed:0.35+Math.random()*0.15, group});
+    }
+  }
+}
+
+let mode='real', flow=false;
+function build(){
+  while(root.children.length) root.remove(root.children[0]);
+  particles.length=0;
+  root.add(faceMesh());
+  root.add(phiNodes());
+  if(mode==='roles'){
+    edgeGroups.aller = lineSeg(aller, COL.aller, 0.95);
+    edgeGroups.transit = lineSeg(interiorE, COL.transit, 0.8);
+    edgeGroups.retour = lineSeg(retour, COL.retour, 0.95);
+    makeParticles(aller, COL.aller, 'aller');
+    makeParticles(interiorDir, 0xffffff, 'transit');
+    makeParticles(retour, COL.retour, 'retour');
+  } else {
+    edgeGroups.aller = lineSeg(aller, COL.real, 0.95);
+    edgeGroups.transit = lineSeg(interiorE, COL.real, 0.95);
+    edgeGroups.retour = lineSeg(retour, COL.real, 0.95);
+    // pas de particules : en réel, lignes fixes, luminosité constante
+  }
+  for(const k in edgeGroups){ edgeGroups[k].userData.pulse = (mode==='roles'); root.add(edgeGroups[k]); }
+  // pôles : tuyère bas, habitat haut (repères, hors circuit détaillé)
+  const noz=new THREE.Mesh(new THREE.ConeGeometry(0.32,0.5,22,1,true),
+    new THREE.MeshStandardMaterial({color:0x1a1a1f, emissive:0x3a1404, emissiveIntensity:.6, roughness:.8, side:THREE.DoubleSide}));
+  noz.position.y=-1.28; noz.rotation.x=Math.PI; root.add(noz);
+  const ar=new THREE.Mesh(new THREE.ConeGeometry(0.12,0.3,18), new THREE.MeshBasicMaterial({color:0x88ccff}));
+  ar.position.y=1.28; root.add(ar);
+  legend();
+}
+function legend(){
+  const L=document.getElementById('legend');
+  const axisNote = (axisMode==='face')
+    ? `<div class="row"><span class="dot" style="background:#2f6f8f"></span><span class="t">faces polaires (bleutées) : tuyère en bas, habitat en haut — aucun nœud ni canal touché</span></div>`
+    : `<div class="row"><span class="dot" style="background:#ff6666"></span><span class="t">⚠ axe par sommets : ouvrir la tuyère ici détruirait un nœud φ (−5 radiales)</span></div>`;
+  if(mode==='roles'){
+    L.innerHTML =
+     `<div class="row"><span class="sw" style="background:#35e0ff;box-shadow:0 0 6px #35e0ff"></span><span class="t">24 radiales ALLER — nœud φ → milieu (débit Q/2)</span></div>
+      <div class="row"><span class="sw" style="background:#fff;box-shadow:0 0 6px #fff"></span><span class="t">60 internes TRANSIT — milieu ↔ milieu</span></div>
+      <div class="row"><span class="sw" style="background:#ffae3d;box-shadow:0 0 6px #ffae3d"></span><span class="t">36 radiales RETOUR — milieu → nœud φ (débit Q/3)</span></div>
+      <div class="row"><span class="dot" style="background:#bfe0ff"></span><span class="t">12 nœuds φ — chacun : 2 sorties + 3 entrées</span></div>
+      ${axisNote}
+      <div class="note">couleurs = rôles (pédagogique) · en réel les 120 émettent le même blanc He · répartition 2/3 par azimut : un choix parmi plusieurs, à figer · 🟡 candidat canon non validé</div>`;
+  } else {
+    L.innerHTML =
+     `<div class="row"><span class="sw" style="background:#fff;box-shadow:0 0 6px #fff"></span><span class="t">120 arêtes — blanc He identique, luminosité constante (régime stationnaire, comme un néon)</span></div>
+      <div class="row"><span class="dot" style="background:#bfe0ff"></span><span class="t">12 nœuds φ</span></div>
+      ${axisNote}
+      <div class="note">le circuit 24/60/36 circule mais est invisible à l'œil : émission sur place, population renouvelée en continu · 🟡 candidat canon non validé</div>`;
+  }
+}
+
+// ---------- caméra / interaction ----------
+function fitCamera(){
+  const v=camera.fov*Math.PI/180;
+  const h=2*Math.atan(Math.tan(v/2)*camera.aspect);
+  const needed=1.45;
+  const dz=Math.max(needed/Math.sin(v/2), needed/Math.sin(h/2));
+  camera.position.set(0,0,dz*1.06); camera.lookAt(0,0,0);
+}
+let drag=false, px=0, py=0, autoR=true;
+renderer.domElement.addEventListener('pointerdown', e=>{ drag=true; autoR=false; px=e.clientX; py=e.clientY; });
+window.addEventListener('pointerup', ()=> drag=false);
+window.addEventListener('pointermove', e=>{ if(!drag)return; root.rotation.y+=(e.clientX-px)/180; root.rotation.x+=(e.clientY-py)/180; px=e.clientX; py=e.clientY; });
+renderer.domElement.addEventListener('wheel', e=>{ e.preventDefault(); camera.position.z=Math.max(0.9,Math.min(6, camera.position.z+e.deltaY*0.006)); }, {passive:false});
+
+document.getElementById('bRoles').onclick=function(){ mode='roles'; this.classList.add('on'); document.getElementById('bReal').classList.remove('on'); build(); };
+document.getElementById('bReal').onclick=function(){ mode='real'; this.classList.add('on'); document.getElementById('bRoles').classList.remove('on'); build(); };
+document.getElementById('bFlow').onclick=function(){ if(mode!=='roles') return; flow=!flow; this.classList.toggle('on',flow); };
+document.getElementById('bAxis').onclick=function(){
+  axisMode = (axisMode==='vertex') ? 'face' : 'vertex';
+  this.textContent = (axisMode==='vertex') ? 'Axe : sommets φ (ancien)' : 'Axe : faces (validé · à croiser)';
+  this.classList.toggle('on', axisMode==='face');
+  orient(); build();
+};
+
+function resize(){ const w=stage.clientWidth,h=stage.clientHeight; renderer.setSize(w,h); camera.aspect=w/h; camera.updateProjectionMatrix(); fitCamera(); }
+window.addEventListener('resize', resize);
+
+function loop(t){
+  requestAnimationFrame(loop); const tm=t*0.001;
+  if(autoR) root.rotation.y+=0.0035;
+  for(const k in edgeGroups){ const o=edgeGroups[k]; if(o.material) o.material.opacity = o.userData.pulse ? 0.55 + 0.35*Math.abs(Math.sin(tm*2)) : 0.95; }
+  for(const p of particles){
+    p.mesh.visible = flow;
+    if(!flow) continue;
+    p.t += p.speed*0.016; if(p.t>1) p.t-=1;
+    const a=G.verts[p.edge[0]], b=G.verts[p.edge[1]];
+    p.mesh.position.set(a[0]+(b[0]-a[0])*p.t, a[1]+(b[1]-a[1])*p.t, a[2]+(b[2]-a[2])*p.t);
+  }
+  renderer.render(scene,camera);
+}
+resize(); build(); loop(0);
+</script>
+</body>
+</html>
